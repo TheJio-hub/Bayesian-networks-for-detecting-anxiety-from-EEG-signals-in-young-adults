@@ -1,0 +1,1 @@
+# En este archivo se detalla la lectura de los datos en crudo y el guardado en matrices
