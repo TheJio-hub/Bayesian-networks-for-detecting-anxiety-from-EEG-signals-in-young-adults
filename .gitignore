@@ -1,2 +1,6 @@
 *.rar
 *.zip
+.venv
+__pycache__
+
+
