@@ -1,0 +1,7 @@
+mne
+mne-features
+numpy
+pandas
+scipy
+openpyxl
+xlrd
