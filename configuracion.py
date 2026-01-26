@@ -1,13 +1,13 @@
-# Configuración del proyecto y variables globales
+# Configuración global del proyecto
 
-# Rutas a los directorios de datos
+# Rutas de directorios
 DIR_BASE = 'Conjunto de datos/Data/'
 DIR_DATOS_CRUDOS = DIR_BASE + 'raw_data'
 DIR_DATOS_FILTRADOS = DIR_BASE + 'filtered_data'
 DIR_DATOS_FILTRADOS_ICA = DIR_BASE + 'artifact_removal' 
 RUTA_ETIQUETAS = DIR_BASE + 'scales.xls'
 
-# Mapeo de columnas para renombrar 
+# Diccionario de renombrado de columnas para el archivo Excel
 COLUMNAS_A_RENOMBRAR = {
     'Subject No.': 'n_sujeto',
     'Trial_1': 't1_mate',
@@ -21,18 +21,16 @@ COLUMNAS_A_RENOMBRAR = {
     'Unnamed: 9': 't3_stroop'
 }
 
-# Tipos de datos disponibles
+# Tipos de datos soportados
 TIPOS_DE_DATOS = ["crudos", "filtrados_wt", "filtrados_ica"]
 
-# Tipos de pruebas
-TIPOS_DE_PRUEBA = ["Arithmetic", "Mirror", "Stroop"] 
-# Los nombres de archivos tienen "Arithmetic", "Mirror", "Stroop". 
-
+# Identificadores de pruebas experimentales
 PRUEBA_ARITMETICA = "Arithmetic"
 PRUEBA_ESPEJO = "Mirror"
 PRUEBA_STROOP = "Stroop"
+TIPOS_DE_PRUEBA = [PRUEBA_ARITMETICA, PRUEBA_ESPEJO, PRUEBA_STROOP]
 
-# Columnas correspondientes a cada tipo de prueba
+# Asociación de columnas de etiquetas por tipo de prueba
 COLUMNAS_TIPO_PRUEBA = {
     PRUEBA_ARITMETICA: ['t1_mate', 't2_mate', 't3_mate'],
     PRUEBA_ESPEJO: ['t1_espejo', 't2_espejo', 't3_espejo'],

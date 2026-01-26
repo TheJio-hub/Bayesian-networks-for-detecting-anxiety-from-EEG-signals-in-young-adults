@@ -6,99 +6,70 @@ import Preprocesamiento
 import Extraccion
 
 def main():
-    # 1. Cargar Datos
-    prueba = config.PRUEBA_ARITMETICA
-    print(f"Cargando datos para prueba: {prueba}")
+    # Cargar Datos
+    tipo_prueba = config.PRUEBA_ARITMETICA
+    print(f"Cargando datos para prueba: {tipo_prueba}")
     
-    # Modificación: Recibir también los nombres de archivos
-    datos, nombres = Preprocesamiento.cargar_dataset(tipo_prueba=prueba)
-    etiquetas = Preprocesamiento.obtener_etiquetas(tipo_prueba=prueba)
+    matriz_datos, lista_nombres = Preprocesamiento.cargar_dataset(tipo_prueba=tipo_prueba)
+    vector_etiquetas = Preprocesamiento.obtener_etiquetas(tipo_prueba=tipo_prueba)
     
-    if datos.size == 0:
-        print("No se cargaron datos. Verifica las rutas en configuracion.py")
+    if matriz_datos.size == 0:
+        print("No hay datos cargados. Verificar configuración.")
         return
 
-    print(f"Datos cargados: {datos.shape}") # (n_trials, n_secs, n_channels, n_samples)
-    print(f"Etiquetas cargadas: {etiquetas.shape}")
-    
-    # Verificar alineación
-    if datos.shape[0] != etiquetas.shape[0]:
-        print(f"ADVERTENCIA: Desajuste en número de muestras. Datos: {datos.shape[0]}, Etiquetas: {etiquetas.shape[0]}")
-        # Ajustar al mínimo común
-        min_len = min(datos.shape[0], etiquetas.shape[0])
-        datos = datos[:min_len]
-        etiquetas = etiquetas[:min_len]
-        nombres = nombres[:min_len]
+    # Ajustar dimensiones si es necesario (intersección)
+    if matriz_datos.shape[0] != vector_etiquetas.shape[0]:
+        minimo = min(matriz_datos.shape[0], vector_etiquetas.shape[0])
+        matriz_datos = matriz_datos[:minimo]
+        vector_etiquetas = vector_etiquetas[:minimo]
+        lista_nombres = lista_nombres[:minimo]
         
+    # Dominio del Tiempo
+    caract_tiempo = Extraccion.caracteristicas_series_tiempo(matriz_datos)
     
-    # 2. Extracción de Características
-    print("Extrayendo características...")
-    
-    # Características de Tiempo
-    print("- Series de tiempo (Varianza, RMS, PTP)")
-    feat_time = Extraccion.caracteristicas_series_tiempo(datos)
-    print(f"  Shape: {feat_time.shape}")
-    
-    # Características de Frecuencia
-    print("- Bandas de frecuencia")
-    # Bandas estándar: Delta, Theta, Alpha, Beta, Gamma (baja)
+    # Dominio de la Frecuencia
     bandas = [0.5, 4, 8, 13, 30, 45] 
-    feat_freq = Extraccion.caracteristicas_bandas_frecuencia(datos, bandas)
-    print(f"  Shape: {feat_freq.shape}")
+    caract_frec = Extraccion.caracteristicas_bandas_frecuencia(matriz_datos, bandas)
     
-    # Características de Hjorth
-    print("- Hjorth (Movilidad, Complejidad)")
-    feat_hjorth = Extraccion.caracteristicas_hjorth(datos)
-    print(f"  Shape: {feat_hjorth.shape}")
+    # Complejidad (Hjorth)
+    caract_hjorth = Extraccion.caracteristicas_hjorth(matriz_datos)
     
-    # Características Fractales
-    print("- Fractales (Higuchi, Katz)")
-    feat_fractal = Extraccion.caracteristicas_fractales(datos)
-    print(f"  Shape: {feat_fractal.shape}")
+    # Análisis Fractal
+    caract_fractal = Extraccion.caracteristicas_fractales(matriz_datos)
     
-    # 3. Concatenar todas las características
-    X = np.concatenate([feat_time, feat_freq, feat_hjorth, feat_fractal], axis=1)
+    # Integración
+    matriz_X = np.concatenate([caract_tiempo, caract_frec, caract_hjorth, caract_fractal], axis=1)
     
-    # Extraccion.py devuelve (n_trials * n_secs, n_features).
-    # Las etiquetas originalson (n_trials,).
-    # Necesitamos expandir 'y' para que coincida con X.
-    n_secs = datos.shape[1]
-    y_expanded = np.repeat(etiquetas, n_secs)
+    # Expansión de etiquetas y metadatos para coincidir con ventanas de tiempo
+    n_segs = matriz_datos.shape[1]
+    etiquetas_expandidas = np.repeat(vector_etiquetas, n_segs)
+    nombres_expandidos = np.repeat(lista_nombres, n_segs)
     
-    # Expandir nombres para que coincidan con X
-    nombres_expanded = np.repeat(nombres, n_secs)
+    # Persistencia de resultados
+    ruta_base = "Resultados"
+    ruta_prueba = os.path.join(ruta_base, tipo_prueba)
+    ruta_caract = os.path.join(ruta_prueba, "features")
     
-    print(f"Matriz de características final X: {X.shape}")
-    print(f"Vector de etiquetas final y: {y_expanded.shape}")
-    print(f"Vector de identificadores: {nombres_expanded.shape}")
+    os.makedirs(ruta_caract, exist_ok=True)
     
-    # 4. Guardar resultados
-    base_dir = "Resultados"
-    prueba_dir = os.path.join(base_dir, prueba)
-    features_dir = os.path.join(prueba_dir, "features")
+    print(f"Guardando en {ruta_prueba}...")
+    np.save(os.path.join(ruta_prueba, 'X.npy'), matriz_X)
+    np.save(os.path.join(ruta_prueba, 'y.npy'), etiquetas_expandidas)
+    np.save(os.path.join(ruta_prueba, 'identifiers.npy'), nombres_expandidos)
     
-    # Crear directorios si no existen
-    os.makedirs(features_dir, exist_ok=True)
+    # Archivo resumen CSV para inspección
+    df_resumen = pd.DataFrame(matriz_X)
+    df_resumen.insert(0, "Identificador", nombres_expandidos)
+    df_resumen.insert(1, "Etiqueta", etiquetas_expandidas)
+    df_resumen.to_csv(os.path.join(ruta_prueba, 'dataset_completo.csv'), index=False)
     
-    print(f"Guardando resultados en {prueba_dir}...")
-    np.save(os.path.join(prueba_dir, 'X.npy'), X)
-    np.save(os.path.join(prueba_dir, 'y.npy'), y_expanded)
-    np.save(os.path.join(prueba_dir, 'identifiers.npy'), nombres_expanded)
+    # Guardado modular
+    np.save(os.path.join(ruta_caract, 'time.npy'), caract_tiempo)
+    np.save(os.path.join(ruta_caract, 'frequency.npy'), caract_frec)
+    np.save(os.path.join(ruta_caract, 'hjorth.npy'), caract_hjorth)
+    np.save(os.path.join(ruta_caract, 'fractal.npy'), caract_fractal)
     
-    # Guardar un CSV con Identificador, Etiqueta y Características (opcional, útil para debugging)
-    df_resumen = pd.DataFrame(X)
-    df_resumen.insert(0, "Identificador", nombres_expanded)
-    df_resumen.insert(1, "Etiqueta", y_expanded)
-    df_resumen.to_csv(os.path.join(prueba_dir, 'dataset_completo.csv'), index=False)
-    
-    # Guardar características individuales
-    print(f"Guardando características individuales en {features_dir}...")
-    np.save(os.path.join(features_dir, 'time.npy'), feat_time)
-    np.save(os.path.join(features_dir, 'frequency.npy'), feat_freq)
-    np.save(os.path.join(features_dir, 'hjorth.npy'), feat_hjorth)
-    np.save(os.path.join(features_dir, 'fractal.npy'), feat_fractal)
-    
-    print("Proceso completado.")
+    print("Ejecución finalizada.")
 
 if __name__ == "__main__":
     main()

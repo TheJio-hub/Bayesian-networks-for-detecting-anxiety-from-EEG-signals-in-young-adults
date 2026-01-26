@@ -1,133 +1,72 @@
 import mne_features.univariate as mne_f
 import numpy as np
 
-def caracteristicas_series_tiempo(datos):
+def caracteristicas_series_tiempo(matriz_datos):
     '''
-    Calcula las caracteristicas de varianza, RMS y amplitud pico-a-pico usando mne_features.
-
+    Calcula Varianza, RMS y Amplitud Pico-a-Pico.
     Args:
-        datos (ndarray): Datos EEG de forma (n_trials, n_secs, n_channels, n_samples).
-
+        matriz_datos (ndarray): Datos EEG (Trials, Segs, Canales, Muestras).
     Returns:
-        ndarray: Caracteristicas calculadas.
+        ndarray: Matriz de características aplanada (Muestras, Features).
     '''
-    n_trials, n_secs, n_canales, _ = datos.shape
-    caracteristicas_por_canal = 3
+    n_trials, n_segs, n_canales, _ = matriz_datos.shape
+    num_feat_canal = 3
 
-    caracteristicas = np.empty([n_trials, n_secs, n_canales * caracteristicas_por_canal])
-    for i, trial in enumerate(datos):
-        for j, segundo in enumerate(trial):
-            varianza = mne_f.compute_variance(segundo)
-            rms = mne_f.compute_rms(segundo)
-            ptp_Amp = mne_f.compute_ptp_amp(segundo)
-            caracteristicas[i][j] = np.concatenate([varianza, rms, ptp_Amp])
+    matriz_caract = np.empty([n_trials, n_segs, n_canales * num_feat_canal])
     
-    caracteristicas = caracteristicas.reshape(
-        [n_trials*n_secs, n_canales*caracteristicas_por_canal])
-    return caracteristicas
+    for i, trial in enumerate(matriz_datos):
+        for j, segmento in enumerate(trial):
+            varianza = mne_f.compute_variance(segmento)
+            rms = mne_f.compute_rms(segmento)
+            ptp = mne_f.compute_ptp_amp(segmento)
+            matriz_caract[i][j] = np.concatenate([varianza, rms, ptp])
+    
+    return matriz_caract.reshape([n_trials*n_segs, n_canales*num_feat_canal])
 
 
-def caracteristicas_bandas_frecuencia(datos, bandas_frecuencia):
+def caracteristicas_bandas_frecuencia(matriz_datos, limites_bandas):
     '''
-    Calcula la potencia en bandas de frecuencia (ej. delta, theta, alpha, beta, gamma).
-
-    Args:
-        datos (ndarray): Datos EEG.
-        bandas_frecuencia (list o ndarray): Los límites de las bandas de frecuencia.
-                     Ejemplo: [0.5, 4, 8, 13, 30, 100]
-
-    Returns:
-        ndarray: Caracteristicas calculadas.
+    Calcula Densidad Espectral de Potencia (PSD) en bandas específicas.
     '''
-    n_trials, n_secs, n_canales, sfreq = datos.shape
-    caracteristicas_por_canal = len(bandas_frecuencia)-1
+    n_trials, n_segs, n_canales, frec_muestreo = matriz_datos.shape
+    num_bandas = len(limites_bandas)-1
 
-    caracteristicas = np.empty([n_trials, n_secs, n_canales * caracteristicas_por_canal])
-    for i, trial in enumerate(datos):
-        for j, segundo in enumerate(trial):
+    matriz_caract = np.empty([n_trials, n_segs, n_canales * num_bandas])
+    
+    for i, trial in enumerate(matriz_datos):
+        for j, segmento in enumerate(trial):
             psd = mne_f.compute_pow_freq_bands(
-                sfreq, segundo, freq_bands=bandas_frecuencia)
-            caracteristicas[i][j] = psd
+                frec_muestreo, segmento, freq_bands=limites_bandas)
+            matriz_caract[i][j] = psd
             
-    caracteristicas = caracteristicas.reshape(
-        [n_trials*n_secs, n_canales*caracteristicas_por_canal])
-    return caracteristicas
+    return matriz_caract.reshape([n_trials*n_segs, n_canales*num_bandas])
 
+def caracteristicas_hjorth(matriz_datos):
+    '''Calcula Movilidad y Complejidad de Hjorth.'''
+    n_trials, n_segs, n_canales, _ = matriz_datos.shape
+    num_feat = 2
 
-def caracteristicas_hjorth(datos):
-    '''
-    Calcula las caracteristicas de movilidad de Hjorth (espectro) y complejidad de Hjorth.
-
-    Args:
-        datos (ndarray): Datos EEG.
-
-    Returns:
-        ndarray: Caracteristicas calculadas.
-    '''
-    n_trials, n_secs, n_canales, sfreq = datos.shape
-    caracteristicas_por_canal = 2
-
-    caracteristicas = np.empty([n_trials, n_secs, n_canales * caracteristicas_por_canal])
-    for i, trial in enumerate(datos):
-        for j, segundo in enumerate(trial):
-            mobility_spect = mne_f.compute_hjorth_mobility_spect(sfreq, segundo)
-            complexity_spect = mne_f.compute_hjorth_complexity_spect(
-                sfreq, segundo)
-            caracteristicas[i][j] = np.concatenate([mobility_spect, complexity_spect])
+    matriz_caract = np.empty([n_trials, n_segs, n_canales * num_feat])
+    
+    for i, trial in enumerate(matriz_datos):
+        for j, segmento in enumerate(trial):
+            movilidad = mne_f.compute_hjorth_mobility(segmento)
+            complejidad = mne_f.compute_hjorth_complexity(segmento)
+            matriz_caract[i][j] = np.concatenate([movilidad, complejidad])
             
-    caracteristicas = caracteristicas.reshape(
-        [n_trials*n_secs, n_canales*caracteristicas_por_canal])
-    return caracteristicas
+    return matriz_caract.reshape([n_trials*n_segs, n_canales*num_feat])
 
+def caracteristicas_fractales(matriz_datos):
+    '''Calcula Dimensiones Fractales de Higuchi y Katz.'''
+    n_trials, n_segs, n_canales, _ = matriz_datos.shape
+    num_feat = 2
 
-def caracteristicas_fractales(datos):
-    '''
-    Calcula la Dimensión Fractal de Higuchi y la Dimensión Fractal de Katz.
-
-    Args:
-        datos (ndarray): Datos EEG.
-
-    Returns:
-        ndarray: Caracteristicas calculadas.
-    '''
-    n_trials, n_secs, n_canales, _ = datos.shape
-    caracteristicas_por_canal = 2
-
-    caracteristicas = np.empty([n_trials, n_secs, n_canales * caracteristicas_por_canal])
-    for i, trial in enumerate(datos):
-        for j, segundo in enumerate(trial):
-            higuchi = mne_f.compute_higuchi_fd(segundo)
-            katz = mne_f.compute_katz_fd(segundo)
-            caracteristicas[i][j] = np.concatenate([higuchi, katz])
+    matriz_caract = np.empty([n_trials, n_segs, n_canales * num_feat])
+    
+    for i, trial in enumerate(matriz_datos):
+        for j, segmento in enumerate(trial):
+            higuchi = mne_f.compute_higuchi_fd(segmento)
+            katz = mne_f.compute_katz_fd(segmento)
+            matriz_caract[i][j] = np.concatenate([higuchi, katz])
             
-    caracteristicas = caracteristicas.reshape(
-        [n_trials*n_secs, n_canales*caracteristicas_por_canal])
-    return caracteristicas
-
-
-def caracteristicas_entropia(datos):
-    '''
-    Calcula entropía aproximada, entropía muestral, entropía espectral y entropía SVD.
-
-    Args:
-        datos (ndarray): Datos EEG.
-
-    Returns:
-        ndarray: Caracteristicas calculadas.
-    '''
-    n_trials, n_secs, n_canales, sfreq = datos.shape
-    caracteristicas_por_canal = 4
-
-    caracteristicas = np.empty([n_trials, n_secs, n_canales * caracteristicas_por_canal])
-    for i, trial in enumerate(datos):
-        for j, segundo in enumerate(trial):
-            app_entropy = mne_f.compute_app_entropy(segundo)
-            samp_entropy = mne_f.compute_samp_entropy(segundo)
-            spect_entropy = mne_f.compute_spect_entropy(sfreq, segundo)
-            svd_entropy = mne_f.compute_svd_entropy(segundo)
-            caracteristicas[i][j] = np.concatenate(
-                [app_entropy, samp_entropy, spect_entropy, svd_entropy])
-                
-    caracteristicas = caracteristicas.reshape(
-        [n_trials*n_secs, n_canales*caracteristicas_por_canal])
-    return caracteristicas
+    return matriz_caract.reshape([n_trials*n_segs, n_canales*num_feat])

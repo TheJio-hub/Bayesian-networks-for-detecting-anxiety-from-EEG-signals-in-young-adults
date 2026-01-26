@@ -7,212 +7,122 @@ import configuracion as config
 
 def cargar_dataset(tipo_datos="filtrados_ica", tipo_prueba="Arithmetic"):
     '''
-    Carga datos del dataset SAM 40.
+    Carga y estructura los datos del dataset SAM 40.
     
     Args:
-        tipo_datos (string): El tipo de datos a cargar. Por defecto "filtrados_ica".
-        tipo_prueba (string): El tipo de prueba a cargar. Por defecto "Arithmetic".
+        tipo_datos (str): Tipo de preprocesamiento origen (ej. "filtrados_ica").
+        tipo_prueba (str): Tarea experimental (ej. "Arithmetic").
     
     Returns:
-        tuple: (dataset, archivos_cargados)
-            dataset (ndarray): El dataset especificado con forma (n_trials, n_secs, n_channels, n_samples).
-            archivos_cargados (list): Lista de nombres de archivos correspondientes a cada trial.
+        tuple: (matriz_datos_eeg, lista_archivos)
     '''
-    assert (tipo_prueba in config.TIPOS_DE_PRUEBA)
-    assert (tipo_datos in config.TIPOS_DE_DATOS)
+    # Validaciones
+    if tipo_prueba not in config.TIPOS_DE_PRUEBA:
+        raise ValueError("Tipo de prueba no válido")
 
-    if tipo_datos == "crudos":
-        dir_datos = config.DIR_DATOS_CRUDOS
-        clave_datos = 'Data'
-    elif tipo_datos == "filtrados_wt":
-        dir_datos = config.DIR_DATOS_FILTRADOS
-        clave_datos = 'Clean_data'
-    else:
-        # Por defecto usamos un directorio de filtrados
-        dir_datos = config.DIR_DATOS_FILTRADOS 
-        clave_datos = 'Clean_data'
-        
-    # Inicializamos lista
-    datos_cargados = []
-    archivos_cargados = []
+    # Selección de directorio
+    dir_origen = config.DIR_DATOS_FILTRADOS 
+    clave_mat = 'Clean_data'
     
-    # Obtenemos lista de archivos
-    archivos = []
-    if os.path.exists(dir_datos):
-        archivos = os.listdir(dir_datos)
-        archivos = [a for a in archivos if a.endswith('.mat')]
+    if tipo_datos == "crudos":
+        dir_origen = config.DIR_DATOS_CRUDOS
+        clave_mat = 'Data'
+    elif tipo_datos == "filtrados_wt":
+        dir_origen = config.DIR_DATOS_FILTRADOS
+        clave_mat = 'Clean_data'
         
-        # Orden natural para alinear con etiquetas (sub_1, sub_2, ..., sub_10)
-        def natural_key(string_):
-            return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_)]
+    lista_datos = []
+    lista_nombres = []
+    
+    # Búsqueda de archivos
+    archivos_mat = []
+    if os.path.exists(dir_origen):
+        archivos_mat = [f for f in os.listdir(dir_origen) if f.endswith('.mat')]
+        
+        # Ordenamiento natural (1, 2, ... 10) en lugar de ASCII (1, 10, 2...)
+        def llave_orden(texto):
+            return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', texto)]
             
-        archivos.sort(key=natural_key)
+        archivos_mat.sort(key=llave_orden)
     else:
-        print(f"Directorio no encontrado: {dir_datos}")
+        print(f"Directorio inaccesible: {dir_origen}")
         return np.array([]), []
 
-    for nombre_archivo in archivos:
+    # Carga iterativa
+    for nombre_archivo in archivos_mat:
         if tipo_prueba not in nombre_archivo:
             continue
 
-        ruta = os.path.join(dir_datos, nombre_archivo)
+        ruta_completa = os.path.join(dir_origen, nombre_archivo)
         try:
-            mat = scipy.io.loadmat(ruta)
+            contenido_mat = scipy.io.loadmat(ruta_completa)
             datos_trial = None
-            if clave_datos in mat:
-                datos_trial = mat[clave_datos]
+            
+            # Búsqueda de la variable correcta dentro del .mat
+            if clave_mat in contenido_mat:
+                datos_trial = contenido_mat[clave_mat]
             else:
-                # Intenta buscar otras claves si la default falla
-                keys = [k for k in mat.keys() if not k.startswith('__')]
-                if keys:
-                    datos_trial = mat[keys[0]]
+                llaves_validas = [k for k in contenido_mat.keys() if not k.startswith('__')]
+                if llaves_validas:
+                    datos_trial = contenido_mat[llaves_validas[0]]
             
             if datos_trial is not None:
-                datos_cargados.append(datos_trial)
-                archivos_cargados.append(nombre_archivo)
+                lista_datos.append(datos_trial)
+                lista_nombres.append(nombre_archivo)
                 
         except Exception as e:
-            print(f"Error leyendo {nombre_archivo}: {e}")
+            print(f"Fallo al leer {nombre_archivo}: {e}")
 
-    if not datos_cargados:
+    if not lista_datos:
         return np.array([]), []
 
-    # Convertir a numpy array
-    # Forma esperada original: (120, 32, 3200)
-    dataset = np.array(datos_cargados)
+    # Estructuración Numpy
+    conjunto_datos = np.array(lista_datos)
     
-    # Validar forma
-    if dataset.ndim == 3:
-         # Reshape para Extraccion.py: (n_trials, n_secs, n_canales, n_samples)
-         # Asumiendo 3200 samples = 25 segundos * 128 Hz
-         n_trials, n_channels, n_total_samples = dataset.shape
-         sfreq = config.FRECUENCIA_MUESTREO
-         n_secs = n_total_samples // sfreq
-         n_samples = sfreq
+    # Ajuste de dimensiones [Trials, Canales, Segundos, Muestras]
+    if conjunto_datos.ndim == 3:
+         n_trials, n_canales, n_total_muestras = conjunto_datos.shape
+         frec_muestreo = config.FRECUENCIA_MUESTREO
          
-         if n_total_samples % sfreq == 0:
-             # (120, 32, 25, 128)
-             dataset = dataset.reshape(n_trials, n_channels, n_secs, n_samples)
-             # Transponer a (120, 25, 32, 128)
-             dataset = dataset.transpose(0, 2, 1, 3)
-         else:
-             print(f"Advertencia: Los datos no son divisibles exactamente en segundos a {sfreq}Hz.")
+         n_segs = n_total_muestras // frec_muestreo
+         n_muestras_seg = frec_muestreo
+         
+         if n_total_muestras % frec_muestreo == 0:
+             # Redimensionar
+             conjunto_datos = conjunto_datos.reshape(n_trials, n_canales, n_segs, n_muestras_seg)
+             # Reordenar ejes a (Trials, Segundos, Canales, Muestras)
+             conjunto_datos = conjunto_datos.transpose(0, 2, 1, 3)
 
-    return dataset, archivos_cargados
+    return conjunto_datos, lista_nombres
 
 def cargar_etiquetas():
-    '''
-    Carga etiquetas del dataset y las transforma a binarias.
-
-    Returns:
-        ndarray: Las etiquetas.
-    '''
+    '''Carga y procesa el archivo de etiquetas Excel.'''
     if not os.path.exists(config.RUTA_ETIQUETAS):
-        print(f"Archivo de etiquetas no encontrado: {config.RUTA_ETIQUETAS}")
         return None
 
-    etiquetas = pd.read_excel(config.RUTA_ETIQUETAS)
-    etiquetas = etiquetas.rename(columns=config.COLUMNAS_A_RENOMBRAR)
-    # Ajuste según formato original, eliminar primera fila si es metadata
-    etiquetas = etiquetas[1:]
+    df_etiquetas = pd.read_excel(config.RUTA_ETIQUETAS)
+    df_etiquetas = df_etiquetas.rename(columns=config.COLUMNAS_A_RENOMBRAR)
     
-    # Asegurar tipos numéricos
-    etiquetas = etiquetas.astype("int")
+    # Limpieza de cabecera extra si existe
+    if df_etiquetas.shape[0] > 0 and pd.to_numeric(df_etiquetas.iloc[0,0], errors='coerce') is np.nan:
+         df_etiquetas = df_etiquetas[1:]
     
-    # Binarizar: Valores mayores a 5 son 1 (Ansiedad/Estrés), otros 0
-    etiquetas = etiquetas > 5
-    return etiquetas
+    # Conversión a entero
+    df_etiquetas = df_etiquetas.astype("int")
+    
+    # Binarización (Umbral > 5 = Ansiedad)
+    return df_etiquetas > 5
 
 def obtener_etiquetas(tipo_prueba="Arithmetic"):
-    '''
-    Obtiene las etiquetas alineadas con el dataset para un tipo de prueba específico.
-    Asume que el dataset está ordenado por sujeto (1..40) y luego por trial (1..3).
-    
-    Args:
-        tipo_prueba (string): "Arithmetic", "Mirror", o "Stroop".
-        
-    Returns:
-        ndarray: Array 1D de etiquetas (booleans o ints).
-    '''
-    etiquetas_df = cargar_etiquetas()
-    if etiquetas_df is None:
+    '''Genera vector de etiquetas alineado a los trials.'''
+    df_etiquetas_bin = cargar_etiquetas()
+    if df_etiquetas_bin is None:
         return np.array([])
         
-    if tipo_prueba not in config.COLUMNAS_TIPO_PRUEBA:
-        print(f"Tipo de prueba {tipo_prueba} no reconocido en configuración.")
+    cols_interes = config.COLUMNAS_TIPO_PRUEBA.get(tipo_prueba, [])
+    if not cols_interes:
         return np.array([])
         
-    cols = config.COLUMNAS_TIPO_PRUEBA[tipo_prueba]
-    # Seleccionamos las columnas relevantes para la prueba
-    # El dataframe tiene índice de sujetos 0..39 (si se cargó correctamente sin la primera fila)
-    subset = etiquetas_df[cols]
-    
-    # Aplanamos la matriz (40, 3) a (120,). 
-    # Pandas/Numpy ravel lo hace por filas por defecto (C-style): S1T1, S1T2, S1T3, S2T1...
-    # Esto coincide con el orden de archivos si usamos orden natural (sub_1_t1, sub_1_t2...)
+    subset = df_etiquetas_bin[cols_interes]
+    # Aplanar matriz a vector 1D
     return subset.values.ravel().astype(int)
-
-
-def formatear_etiquetas(etiquetas, tipo_prueba="Arithmetic", epocas=1):
-    '''
-    Filtra las etiquetas y las repite por la cantidad especificada de épocas.
-
-    Args:
-        etiquetas (ndarray): Las etiquetas.
-        tipo_prueba (string): El tipo de prueba para filtrar.
-        epocas (int): La cantidad de épocas.
-
-    Returns:
-        ndarray: Las etiquetas formateadas.
-    '''
-    assert (tipo_prueba in config.TIPOS_DE_PRUEBA)
-
-    etiquetas_formateadas = []
-    if tipo_prueba in config.COLUMNAS_TIPO_PRUEBA:
-        columnas = config.COLUMNAS_TIPO_PRUEBA[tipo_prueba]
-        for trial in columnas:
-            if trial in etiquetas.columns:
-                etiquetas_formateadas.append(etiquetas[trial])
-            else:
-                print(f"Advertencia: Columna {trial} no encontrada en etiquetas.")
-    
-    if etiquetas_formateadas:
-        etiquetas_formateadas = pd.concat(etiquetas_formateadas).to_numpy()
-        etiquetas_formateadas = etiquetas_formateadas.repeat(epocas)
-    else:
-        return np.array([])
-
-    return etiquetas_formateadas
-
-
-def dividir_datos(datos, frecuencia_muestreo):
-    '''
-    Divide los datos EEG en épocas de 1 segundo.
-
-    Args:
-        datos (ndarray): Datos EEG.
-        frecuencia_muestreo (int): Frecuencia de muestreo.
-    
-    Returns:
-        ndarray: Datos divididos en épocas.
-    '''
-    if datos.ndim != 3:
-        print("Los datos deben tener 3 dimensiones (trials, canales, muestras)")
-        return datos
-
-    n_trials, n_canales, n_muestras = datos.shape
-    
-    segundos = n_muestras // frecuencia_muestreo
-    
-    if segundos == 0:
-        return np.empty((n_trials, 0, n_canales, frecuencia_muestreo))
-
-    datos_epocados = np.empty((n_trials, segundos, n_canales, frecuencia_muestreo))
-    
-    for i in range(n_trials):
-        for j in range(segundos):
-            inicio = j * frecuencia_muestreo
-            fin = (j + 1) * frecuencia_muestreo
-            datos_epocados[i, j] = datos[i, :, inicio:fin]
-            
-    return datos_epocados
