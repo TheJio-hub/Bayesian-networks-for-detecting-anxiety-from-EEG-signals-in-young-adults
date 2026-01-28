@@ -6,18 +6,18 @@ import Preprocesamiento
 import Extraccion
 
 def main():
-    # Cargar Datos
-    tipo_prueba = config.PRUEBA_ARITMETICA
-    print(f"Cargando datos para prueba: {tipo_prueba}")
-    
-    matriz_datos, lista_nombres = Preprocesamiento.cargar_dataset(tipo_prueba=tipo_prueba)
-    vector_etiquetas = Preprocesamiento.obtener_etiquetas(tipo_prueba=tipo_prueba)
-    
-    if matriz_datos.size == 0:
-        print("No hay datos cargados. Verificar configuración.")
-        return
+    # Procesar todas las pruebas configuradas
+    for tipo_prueba in config.TIPOS_DE_PRUEBA:
+        print(f"Cargando datos para prueba: {tipo_prueba}")
+        
+        matriz_datos, lista_nombres = Preprocesamiento.cargar_dataset(tipo_prueba=tipo_prueba)
+        vector_etiquetas = Preprocesamiento.obtener_etiquetas(tipo_prueba=tipo_prueba)
+        
+        if matriz_datos.size == 0:
+            print(f"No hay datos cargados para {tipo_prueba}. Saltando...")
+            continue
 
-    # Ajustar dimensiones si es necesario (intersección)
+        # Ajustar dimensiones si es necesario (intersección)
     if matriz_datos.shape[0] != vector_etiquetas.shape[0]:
         minimo = min(matriz_datos.shape[0], vector_etiquetas.shape[0])
         matriz_datos = matriz_datos[:minimo]
@@ -69,7 +69,7 @@ def main():
     np.save(os.path.join(ruta_caract, 'hjorth.npy'), caract_hjorth)
     np.save(os.path.join(ruta_caract, 'fractal.npy'), caract_fractal)
     
-    print("Ejecución finalizada.")
+    print(f"Proceso finalizado para {tipo_prueba}.\n")
 
 if __name__ == "__main__":
     main()

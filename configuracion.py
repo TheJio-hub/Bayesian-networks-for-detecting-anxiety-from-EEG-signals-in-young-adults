@@ -27,8 +27,12 @@ TIPOS_DE_DATOS = ["crudos", "filtrados_wt", "filtrados_ica"]
 # Identificadores de pruebas experimentales
 PRUEBA_ARITMETICA = "Arithmetic"
 PRUEBA_ESPEJO = "Mirror"
+PRUEBA_ARITMETICA = "Arithmetic"
+PRUEBA_ESPEJO = "Mirror"
 PRUEBA_STROOP = "Stroop"
-TIPOS_DE_PRUEBA = [PRUEBA_ARITMETICA, PRUEBA_ESPEJO, PRUEBA_STROOP]
+PRUEBA_RELAJACION = "Relax"
+
+TIPOS_DE_PRUEBA = [PRUEBA_ARITMETICA, PRUEBA_ESPEJO, PRUEBA_STROOP, PRUEBA_RELAJACION]
 
 # Asociación de columnas de etiquetas por tipo de prueba
 COLUMNAS_TIPO_PRUEBA = {

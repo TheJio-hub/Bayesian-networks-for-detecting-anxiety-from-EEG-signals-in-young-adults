@@ -93,6 +93,11 @@ def cargar_dataset(tipo_datos="filtrados_ica", tipo_prueba="Arithmetic"):
              # Reordenar ejes a (Trials, Segundos, Canales, Muestras)
              conjunto_datos = conjunto_datos.transpose(0, 2, 1, 3)
 
+    # REGLA DE NEGOCIO: Para Relax, recortar a los primeros 25 segundos
+    if tipo_prueba == config.PRUEBA_RELAJACION and conjunto_datos.shape[1] > 25:
+        # Forma: (Trials, Segundos, Canales, Muestras)
+        conjunto_datos = conjunto_datos[:, :25, :, :]
+
     return conjunto_datos, lista_nombres
 
 def cargar_etiquetas():
@@ -107,6 +112,13 @@ def cargar_etiquetas():
     if df_etiquetas.shape[0] > 0 and pd.to_numeric(df_etiquetas.iloc[0,0], errors='coerce') is np.nan:
          df_etiquetas = df_etiquetas[1:]
     
+    # Conversión forzada a numérico para todas las columnas
+    for col in df_etiquetas.columns:
+        df_etiquetas[col] = pd.to_numeric(df_etiquetas[col], errors='coerce')
+
+    # Rellenar nulos con 0 antes de convertir
+    df_etiquetas = df_etiquetas.fillna(0)
+    
     # Conversión a entero
     df_etiquetas = df_etiquetas.astype("int")
     
@@ -119,6 +131,11 @@ def obtener_etiquetas(tipo_prueba="Arithmetic"):
     if df_etiquetas_bin is None:
         return np.array([])
         
+    if tipo_prueba == config.PRUEBA_RELAJACION:
+         # Asumimos 3 trials de relajación por sujeto, etiqueta 0 (Baja ansiedad)
+         n_sujetos = len(df_etiquetas_bin)
+         return np.zeros(n_sujetos * 3, dtype=int)
+
     cols_interes = config.COLUMNAS_TIPO_PRUEBA.get(tipo_prueba, [])
     if not cols_interes:
         return np.array([])
