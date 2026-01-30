@@ -5,8 +5,8 @@ import os
 from sklearn.preprocessing import StandardScaler
 
 def normalizar_y_graficar():
-    input_file = 'datos_bandas.parquet'
-    output_dir = 'Resultados/Analisis espectral normalizado'
+    input_file = os.path.join('Resultados', 'datos_bandas.parquet')
+    output_dir = os.path.join('Resultados', 'Análisis espectral (normalizado)')
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -15,7 +15,7 @@ def normalizar_y_graficar():
     df = pd.read_parquet(input_file)
     
     # Identificar columnas de características (las que tienen banda de frecuencia)
-    cols_meta = ['Sujeto', 'Tarea', 'Ensayo', 'Epoca', 'Puntaje']
+    cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje']
     cols_features = [c for c in df.columns if c not in cols_meta]
     
     print("Aplicando Normalización Z-score por Sujeto...")
@@ -34,8 +34,8 @@ def normalizar_y_graficar():
     df_norm['Grupo'] = df_norm['Puntaje'].apply(lambda x: 'Relax' if x == 0 else 'Estres')
     
     # Guardar dataset normalizado (útil para la Red Bayesiana después)
-    output_parquet = 'datos_bandas_normalizados.parquet'
-    output_csv = 'datos_bandas_normalizados.csv'
+    output_parquet = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
+    output_csv = os.path.join('Resultados', 'datos_bandas_normalizados.csv')
     
     print(f"Guardando dataset normalizado en {output_parquet}...")
     df_norm.to_parquet(output_parquet)

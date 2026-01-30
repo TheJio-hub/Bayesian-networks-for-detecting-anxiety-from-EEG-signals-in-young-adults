@@ -163,7 +163,7 @@ def generar_conjunto_datos():
                 registro = {
                     'Sujeto': id_sujeto,
                     'Tarea': tarea_archivo,
-                    'Ensayo': num_ensayo,
+                    'Trial': num_ensayo,
                     'Epoca': i_epoca + 1,
                     'Puntaje': puntaje
                 }
@@ -197,7 +197,11 @@ def generar_conjunto_datos():
     df_resultado = pd.concat([df_meta, df_eeg], axis=1)
     
     # Guardar en formato Parquet (mucho más ligero y rápido)
-    archivo_parquet = 'datos_completo_epocas.parquet'
+    output_dir = 'Resultados'
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    archivo_parquet = os.path.join(output_dir, 'datos_completo_epocas.parquet')
     print(f"Guardando archivo Parquet: {archivo_parquet} ...")
     df_resultado.to_parquet(archivo_parquet, index=False)
     print("¡Archivo Parquet guardado exitosamente!")

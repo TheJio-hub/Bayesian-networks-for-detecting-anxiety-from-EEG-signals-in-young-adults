@@ -79,15 +79,18 @@ def calcular_bandas_potencia(dataset_path):
     print(f"Extracción completada. Dimensiones finales: {df_features.shape}")
     
     # Guardar
-    output_parquet = 'datos_bandas.parquet'
-    output_csv = 'datos_bandas.csv'
+    output_dir = 'Resultados'
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    output_parquet = os.path.join(output_dir, 'datos_bandas.parquet')
+    output_csv = os.path.join(output_dir, 'datos_bandas.csv')
     
     print(f"Guardando en {output_parquet}...")
     df_features.to_parquet(output_parquet, index=False)
     
     print(f"Guardando en {output_csv}...")
     df_features.to_csv(output_csv, index=False)
-    
     return df_features
 
 if __name__ == "__main__":

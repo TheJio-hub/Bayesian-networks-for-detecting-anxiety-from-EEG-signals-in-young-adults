@@ -5,8 +5,8 @@ import os
 
 def generar_graficos_densidad():
     # Configuración de rutas
-    input_file = 'datos_bandas.parquet'
-    output_dir = 'Resultados/Analisis espectral'
+    input_file = os.path.join('Resultados', 'datos_bandas.parquet')
+    output_dir = os.path.join('Resultados', 'Análisis espectral')
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
