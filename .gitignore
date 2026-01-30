@@ -4,10 +4,6 @@
 __pycache__
 *.pdf
 
-
-# Datos grandes
-*.parquet
-*.mat
-datos_completo_epocas.csv
+# No subir toda la carpeta de Resultados
 Resultados
-datos_*.csv
+
