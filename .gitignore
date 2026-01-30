@@ -2,5 +2,12 @@
 *.zip
 .venv
 __pycache__
+*.pdf
 
 
+# Datos grandes
+*.parquet
+*.mat
+datos_completo_epocas.csv
+Resultados
+datos_*.csv
