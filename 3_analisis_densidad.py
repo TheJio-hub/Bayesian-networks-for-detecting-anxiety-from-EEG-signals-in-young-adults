@@ -14,23 +14,15 @@ def generar_graficos_densidad():
     print(f"Cargando {input_file}...")
     df = pd.read_parquet(input_file)
     
-    # Definir grupos: Relax vs Estrés
-    print("Creando grupos: Relax (Puntaje == 0) vs Estrés (Puntaje >= 1)...")
-    df['Grupo'] = df['Puntaje'].apply(lambda x: 'Relax' if x == 0 else 'Estres')
-    
-    # Filtrar canales Frontales (F...) y Temporales (T...)
-    # Lista de canales obtenida previamente:
-    # ['C3', 'C4', 'CP1', 'CP2', 'CP5', 'CP6', 'Cz', 'F3', 'F4', 'F7', 'F8', 'FC1', 'FC2', 'FC5', 'FC6', 'FT10', 'FT9', 'Fp1', 'Fp2', 'Fz', 'O1', 'O2', 'Oz', 'P3', 'P4', 'P7', 'P8', 'PO10', 'PO9', 'Pz', 'T7', 'T8']
+    # Definir grupos: Relajacion vs Ansiedad
+    print("Creando grupos: Relajacion (Puntaje == 0) vs Ansiedad (Puntaje >= 1)...")
+    df['Grupo'] = df['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')
     
     all_columns = df.columns.tolist()
     feature_cols = [c for c in all_columns if '_' in c and c not in ['Sujeto', 'Tarea', 'Ensayo', 'Epoca', 'Puntaje', 'Grupo']]
     
     # Bandas de interés
     bandas_interes = ['Alpha', 'Beta']
-    
-    # Canales de interés: Empiezan con F (Frontal) o T (Temporal)
-    # Excluimos los que no sean F o T puros si queremos ser muy estrictos, pero Fp, FC, FT son relevantes.
-    # El usuario pidió "Frontales y Temporales".
     
     canales_feature = []
     for col in feature_cols:
@@ -44,9 +36,7 @@ def generar_graficos_densidad():
     # Configurar estilo visual
     sns.set_theme(style="whitegrid")
     
-    # Generar gráficos
-    # Para no saturar, guardaremos un gráfico por característica
-    
+    # Generar gráficos    
     for i, col in enumerate(canales_feature):
         if i % 10 == 0:
             print(f"Generando gráfico {i}/{len(canales_feature)}: {col}")
@@ -60,13 +50,13 @@ def generar_graficos_densidad():
             hue='Grupo', 
             fill=True, 
             common_norm=False, 
-            palette={'Relax': 'blue', 'Estres': 'red'},
+            palette={'Relajacion': 'blue', 'Ansiedad': 'red'},
             alpha=0.3,
             linewidth=2
         )
         
         canal, banda = col.split('_')
-        plt.title(f'Distribución de Densidad: Canal {canal} - Banda {banda}\n(Relax vs Estrés)')
+        plt.title(f'Distribución de Densidad: Canal {canal} - Banda {banda}\n(Relajacion vs Ansiedad)')
         plt.xlabel('Potencia Espectral (uV^2/Hz)')
         plt.ylabel('Densidad')
         
@@ -74,8 +64,6 @@ def generar_graficos_densidad():
         filename = f"{output_dir}/Densidad_{canal}_{banda}.png"
         plt.savefig(filename)
         plt.close()
-
-    print("¡Análisis gráfico completado!")
 
 if __name__ == "__main__":
     generar_graficos_densidad()

@@ -92,7 +92,7 @@ def generar_conjunto_datos():
     # Definir parámetros
     frecuencia_muestreo = 128
     segundos_por_archivo = 25
-    segundos_descarte = 5 # Descartar los primeros 5 segundos de adaptación/relajación
+    segundos_descarte = 5 # Descartamos los primeros 5 segundos de adaptación/relajación
     muestras_descarte = segundos_descarte * frecuencia_muestreo
     muestras_por_epoca = frecuencia_muestreo * 1 # 1 segundo por epoca
     
@@ -140,7 +140,6 @@ def generar_conjunto_datos():
             
             # Cargar .mat
             mat = scipy.io.loadmat(os.path.join(ruta_filtrados, nombre_archivo))
-            # Buscar la llave de datos (usualmente 'Clean_data')
             llave_datos = [k for k in mat.keys() if not k.startswith('__')][0]
             datos_senal = mat[llave_datos] # Forma (32, 3200)
             
@@ -152,15 +151,13 @@ def generar_conjunto_datos():
             # Recortar a 25 segundos (3200 muestras) si es más largo
             datos_senal = datos_senal[:, :3200]
             
-            # --- Corrección de Línea Base (Baseline Correction) ---
-            # Definida por el usuario: Usar los primeros 5s como base para restar al resto.
-            # Solo aplica a tareas de Estrés. Relajación se mantiene sin corregir (solo recorte).
+            # Corrección de Línea Base aplicada a potencia 
+            # Solo aplica a tareas de Estrés. Relajación se mantiene sin corregir
             
             if tarea_archivo == 'Relajacion':
                 # Para relajación: NO descartar nada, mantener los 25s completos.
                 pass
             else:
-                # Modificación para Baseline Correction en Frecuencia:
                 # 1. Extraer los datos de adaptación (primeros 5s) y guardarlos como BASELINE
                 datos_base = datos_senal[:, :muestras_descarte]
                 num_epocas_base = datos_base.shape[1] // muestras_por_epoca
@@ -181,7 +178,6 @@ def generar_conjunto_datos():
                     lista_datos_eeg.append(datos_epoca.flatten())
 
                 # 2. Extraer los datos activos (segundos 5 al 25)
-                # No restamos voltaje aquí, lo haremos en características (resta de potencia)
                 datos_senal = datos_senal[:, muestras_descarte:]
             
             # Dividir en épocas de 1 segundo (128 muestras)
@@ -215,10 +211,7 @@ def generar_conjunto_datos():
     print("Construyendo DataFrame...")
     df_meta = pd.DataFrame(lista_metadatos)
     
-    # Nombres de columnas para los datos EEG con nombres reales de canales
     # Formato: Fp1_1, Fp1_2 ... o Channel_Sample
-    # El usuario pidió "etiquetas con el nombre del canal".
-    # Dado que hay 128 muestras por canal por segundo, repetiré el nombre del canal con sufijo de muestra.
     nombres_cols_eeg = [f'{canal}_{m+1}' for canal in nombres_canales for m in range(muestras_por_epoca)]
     
     if len(nombres_cols_eeg) != len(lista_datos_eeg[0]):
@@ -229,7 +222,7 @@ def generar_conjunto_datos():
     # Concatenar
     df_resultado = pd.concat([df_meta, df_eeg], axis=1)
     
-    # Guardar en formato Parquet (mucho más ligero y rápido)
+    # formato Parquet  (más ligero y rápido)
     output_dir = 'Resultados'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -239,7 +232,6 @@ def generar_conjunto_datos():
     df_resultado.to_parquet(archivo_parquet, index=False)
     print("¡Archivo Parquet guardado exitosamente!")
     
-    # Opcional: CSV (comentado para evitar archivos pesados)
     # archivo_csv = 'datos_completo_epocas.csv'
     # df_resultado.to_csv(archivo_csv, index=False)
     

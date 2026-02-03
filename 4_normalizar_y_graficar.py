@@ -14,26 +14,20 @@ def normalizar_y_graficar():
     print(f"Cargando {input_file}...")
     df = pd.read_parquet(input_file)
     
-    # Identificar columnas de características (las que tienen banda de frecuencia)
+    # Identificar columnas de características 
     cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje']
     cols_features = [c for c in df.columns if c not in cols_meta]
-    
-    print("Aplicando Normalización Z-score por Sujeto...")
-    # Esta operación puede ser lenta, optimizamos usando transform de pandas
-    # Agrupamos por sujeto y normalizamos las características
-    
+        
     def zscore(x):
         return (x - x.mean()) / x.std()
 
     # Aplicamos z-score a todas las features agrupando por sujeto
-    # Esto asegura que el "0" sea el promedio del sujeto, eliminando sesgos individuales
     df_norm = df.copy()
     df_norm[cols_features] = df.groupby('Sujeto')[cols_features].transform(zscore)
     
     # Definir grupos nuevamente
-    df_norm['Grupo'] = df_norm['Puntaje'].apply(lambda x: 'Relax' if x == 0 else 'Estres')
+    df_norm['Grupo'] = df_norm['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')
     
-    # Guardar dataset normalizado (útil para la Red Bayesiana después)
     output_parquet = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
     output_csv = os.path.join('Resultados', 'datos_bandas_normalizados.csv')
     
@@ -42,11 +36,7 @@ def normalizar_y_graficar():
     
     print(f"Guardando dataset normalizado en {output_csv}...")
     df_norm.to_csv(output_csv, index=False)
-    
-    # --- Graficar ---
-    print("Generando gráficos de densidad normalizados...")
-    
-    # Filtrar características de interés (Frontales y Temporales, Alpha y Beta)
+        
     bandas_interes = ['Alpha', 'Beta']
     canales_feature = []
     
@@ -57,8 +47,6 @@ def normalizar_y_graficar():
         banda = parts[1]
         
         if banda in bandas_interes:
-            # Filtro simple: Empieza con F (Frontal) o T (Temporal)
-            # Incluye Fp1, FC1, FT9, etc.
             if canal.startswith('F') or canal.startswith('T'):
                 canales_feature.append(col)
     
@@ -77,7 +65,7 @@ def normalizar_y_graficar():
             hue='Grupo', 
             fill=True, 
             common_norm=False, 
-            palette={'Relax': 'blue', 'Estres': 'red'},
+            palette={'Relajacion': 'blue', 'Ansiedad': 'red'},
             alpha=0.3,
             linewidth=2,
             clip=(-3, 3) # Limitar visualización a +/- 3 desviaciones estándar para ver el centro
@@ -95,7 +83,6 @@ def normalizar_y_graficar():
         plt.savefig(filename)
         plt.close()
 
-    print("¡Proceso finalizado!")
 
 if __name__ == "__main__":
     normalizar_y_graficar()
