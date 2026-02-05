@@ -14,7 +14,8 @@ def generar_graficos_boxplot():
     df = pd.read_parquet(input_file)
     
     # Definir grupos: Relajacion vs Ansiedad
-    print("Creando grupos: Relajacion (Puntaje == 0) vs Ansiedad (Puntaje >= 1)...")
+    print("Creando grupos: Relajacion (Puntaje == 0) vs Ansiedad (Puntaje >= 5)...")
+    df = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
     df['Grupo'] = df['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')
     
     cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo']

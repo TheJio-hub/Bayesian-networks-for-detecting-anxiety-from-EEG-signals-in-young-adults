@@ -2,63 +2,73 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
-from sklearn.preprocessing import StandardScaler
+import numpy as np
 
-def normalizar_y_graficar():
+def normalizar_y_graficar_densidad():
+    # Rutas
     input_file = os.path.join('Resultados', 'datos_bandas.parquet')
+    output_parquet = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
     output_dir = os.path.join('Resultados', 'Análisis espectral (normalizado)')
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-        
+    
+    if not os.path.exists(input_file):
+        print(f"Error: No se encuentra {input_file}")
+        return
+
     print(f"Cargando {input_file}...")
     df = pd.read_parquet(input_file)
     
-    # Identificar columnas de características 
-    cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje']
-    cols_features = [c for c in df.columns if c not in cols_meta]
-        
+    cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo'] 
+    cols_meta_presentes = [c for c in cols_meta if c in df.columns]
+    cols_features = [c for c in df.columns if c not in cols_meta_presentes and pd.api.types.is_numeric_dtype(df[c])]
+
+    print(f"Calculando Z-score para {len(cols_features)} características...")
+    
+    # Normalización Z-score por sujeto
     def zscore(x):
+        if x.std() == 0: return x - x.mean()
         return (x - x.mean()) / x.std()
 
-    # Aplicamos z-score a todas las features agrupando por sujeto
+    # Copia para normalizar
     df_norm = df.copy()
-    df_norm[cols_features] = df.groupby('Sujeto')[cols_features].transform(zscore)
     
-    # Definir grupos nuevamente
-    df_norm['Grupo'] = df_norm['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')
+    # Aplicar transformación
+    df_norm[cols_features] = df_norm.groupby('Sujeto')[cols_features].transform(zscore)
     
-    output_parquet = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
-    output_csv = os.path.join('Resultados', 'datos_bandas_normalizados.csv')
+    # Asegurar columna Grupo
+    if 'Puntaje' in df_norm.columns:
+        # Filtrar datos según criterio SAM (0 vs >=5)
+        df_norm = df_norm[ (df_norm['Puntaje'] == 0) | (df_norm['Puntaje'] >= 5) ].copy()
+        df_norm['Grupo'] = df_norm['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')
     
-    print(f"Guardando dataset normalizado en {output_parquet}...")
+    print(f"Guardando datos normalizados en {output_parquet}...")
     df_norm.to_parquet(output_parquet)
+
+    # --- GRAFICACIÓN ---
+    canales_referencia = ['A1', 'A2', 'M1', 'M2', 'REF', 'Ref', 'EXG1', 'EXG2']
     
-    print(f"Guardando dataset normalizado en {output_csv}...")
-    df_norm.to_csv(output_csv, index=False)
-        
-    bandas_interes = ['Alpha', 'Beta']
-    canales_feature = []
-    
+    feature_cols_graficar = []
     for col in cols_features:
         parts = col.split('_')
-        if len(parts) < 2: continue
-        canal = parts[0]
-        banda = parts[1]
-        
-        if banda in bandas_interes:
-            if canal.startswith('F') or canal.startswith('T'):
-                canales_feature.append(col)
+        if len(parts) >= 2:
+            canal = parts[0]
+            if canal not in canales_referencia:
+                feature_cols_graficar.append(col)
+            
+    print(f"Generando gráficos de densidad (Normalizados) para {len(feature_cols_graficar)} características...")
     
+    # Configurar estilo
     sns.set_theme(style="whitegrid")
     
-    for i, col in enumerate(canales_feature):
-        if i % 5 == 0:
-            print(f"Graficando {i}/{len(canales_feature)}: {col}")
+    for i, col in enumerate(feature_cols_graficar):
+        if i % 20 == 0:
+            print(f"Procesando gráfico {i}/{len(feature_cols_graficar)}: {col}")
             
         plt.figure(figsize=(10, 6))
         
-        # Plot de densidad
+        # Plot de densidad (KDE) - Normalizado
         sns.kdeplot(
             data=df_norm, 
             x=col, 
@@ -66,23 +76,24 @@ def normalizar_y_graficar():
             fill=True, 
             common_norm=False, 
             palette={'Relajacion': 'blue', 'Ansiedad': 'red'},
-            alpha=0.3,
+            alpha=0.3, # Transparencia
             linewidth=2,
-            clip=(-3, 3) # Limitar visualización a +/- 3 desviaciones estándar para ver el centro
+            clip=(-4, 4) # Clip para centrar la visualización en Z-scores relevantes
         )
         
         parts = col.split('_')
         canal = parts[0]
         banda = parts[1]
         
-        plt.title(f'Distribución Normalizada (Z-score): {canal} - {banda}')
-        plt.xlabel('Desviación Estándar respecto al promedio del sujeto')
+        plt.title(f'Distribución Normalizada (Z-score): {canal} - {banda}\n(Relajacion vs Ansiedad)')
+        plt.xlabel('Potencia Normalizada (Desv. Estándar)')
         plt.ylabel('Densidad')
         
-        filename = f"{output_dir}/Norm_{canal}_{banda}.png"
+        filename = os.path.join(output_dir, f"Densidad_Norm_{canal}_{banda}.png")
         plt.savefig(filename)
-        plt.close()
-
+        plt.close() 
+        
+    print("¡Proceso de normalización y graficación de densidad completado!")
 
 if __name__ == "__main__":
-    normalizar_y_graficar()
+    normalizar_y_graficar_densidad()

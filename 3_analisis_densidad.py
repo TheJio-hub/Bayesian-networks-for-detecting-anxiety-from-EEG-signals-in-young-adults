@@ -15,35 +15,44 @@ def generar_graficos_densidad():
     df = pd.read_parquet(input_file)
     
     # Definir grupos: Relajacion vs Ansiedad
-    print("Creando grupos: Relajacion (Puntaje == 0) vs Ansiedad (Puntaje >= 1)...")
+    print("Creando grupos: Relajacion (Puntaje == 0) vs Ansiedad (Puntaje >= 5)...")
+    
+    # Filtrar datos según criterio SAM (0 vs >=5)
+    df = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
+    
     df['Grupo'] = df['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')
     
     all_columns = df.columns.tolist()
     feature_cols = [c for c in all_columns if '_' in c and c not in ['Sujeto', 'Tarea', 'Ensayo', 'Epoca', 'Puntaje', 'Grupo']]
     
-    # Bandas de interés
-    bandas_interes = ['Alpha', 'Beta']
+    # Canales a excluir (Referencias)
+    canales_referencia = ['A1', 'A2', 'M1', 'M2', 'REF', 'Ref', 'EXG1', 'EXG2']
     
     canales_feature = []
     for col in feature_cols:
-        canal, banda = col.split('_')
-        if banda in bandas_interes:
-            if canal.startswith('F') or canal.startswith('T'):
-                canales_feature.append(col)
+        parts = col.split('_')
+        if len(parts) < 2: continue
+        canal = parts[0]
+        
+        # Filtrar referencias
+        if canal in canales_referencia:
+            continue
+            
+        canales_feature.append(col)
                 
-    print(f"Total de características a graficar: {len(canales_feature)}")
+    print(f"Generando gráficos de densidad (Crudos) para {len(canales_feature)} características (Excluyendo referencias)...")
     
-    # Configurar estilo visual
+    # Establecer estilo visual
     sns.set_theme(style="whitegrid")
     
-    # Generar gráficos    
     for i, col in enumerate(canales_feature):
-        if i % 10 == 0:
+        if i % 20 == 0:
             print(f"Generando gráfico {i}/{len(canales_feature)}: {col}")
             
         plt.figure(figsize=(10, 6))
         
         # Plot de densidad (KDE)
+        # Colores solicitados: Relajacion (Azul), Ansiedad (Rojo)
         sns.kdeplot(
             data=df, 
             x=col, 
@@ -55,15 +64,19 @@ def generar_graficos_densidad():
             linewidth=2
         )
         
-        canal, banda = col.split('_')
+        parts = col.split('_')
+        canal = parts[0]
+        banda = parts[1]
+        
         plt.title(f'Distribución de Densidad: Canal {canal} - Banda {banda}\n(Relajacion vs Ansiedad)')
         plt.xlabel('Potencia Espectral (uV^2/Hz)')
         plt.ylabel('Densidad')
         
-        # Guardar archivo
-        filename = f"{output_dir}/Densidad_{canal}_{banda}.png"
+        filename = os.path.join(output_dir, f"Densidad_{canal}_{banda}.png")
         plt.savefig(filename)
         plt.close()
+
+    print(f"¡Análisis gráfico (crudo) completado! Imágenes en {output_dir}")
 
 if __name__ == "__main__":
     generar_graficos_densidad()
