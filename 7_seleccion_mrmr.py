@@ -15,8 +15,6 @@ def seleccion_mrmr(X, y, n_seleccion):
     indices_seleccionados = []
     indices_candidatos = list(range(n_caracteristicas))
     
-    # 1. Calcular Relevancia (MI entre Característica y Objetivo) para TODOS
-    # discrete_features=False porque las bandas son continuas
     print(f"   - Calculando Relevancia inicial (MI) para {n_caracteristicas} características...")
     relevancia_inicial = mutual_info_classif(X, y, discrete_features=False, random_state=42)
     
