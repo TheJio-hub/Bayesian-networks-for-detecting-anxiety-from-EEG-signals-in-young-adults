@@ -3,6 +3,8 @@ import numpy as np
 import os
 import time
 from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.model_selection import cross_validate, GroupKFold
+from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
 
 def evaluar_importancia_arbol():
@@ -30,6 +32,8 @@ def evaluar_importancia_arbol():
         df = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
         # Crear vector objetivo y
         y = df['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
+        # Obtener grupos para validación cruzada (Sujetos)
+        grupos = df['Sujeto'].values
     else:
         print("Advertencia: No se pudo filtrar por puntaje.")
         return
@@ -45,10 +49,42 @@ def evaluar_importancia_arbol():
     X = df[caracteristicas]
     print(f"Entrenando Árbol de Decisión con {X.shape[1]} características y {X.shape[0]} muestras...")
 
-    # Configurar y entrenar el Árbol de Decisión
-    # random_state=42 para reproducibilidad
-    # clase_weight='balanced' es útil si hay desbalance entre Relax y Ansiedad
+    # Configurar el clasificador
     arbol = DecisionTreeClassifier(random_state=42, class_weight='balanced')
+    
+    # --- EVALUACIÓN DE DESEMPEÑO (Cross-Validation Leave-One-Group-Out) ---
+    print("   - Calculando métricas de desempeño (Group K-Fold por Sujeto)...")
+    # Usamos GroupKFold para que NUNCA se mezclen épocas del mismo sujeto en train y test
+    # Esto evita que el modelo memorice la "huella digital" del sujeto.
+    cv = GroupKFold(n_splits=5) 
+    scoring = {
+        'accuracy': 'accuracy',
+        'precision': 'precision',
+        'recall': 'recall',
+        'f1': 'f1'
+    }
+    # Pasamos grupos=grupos para asegurar independencia de sujetos
+    scores = cross_validate(arbol, X, y, cv=cv, scoring=scoring, groups=grupos)
+    
+    # Promediar métricas
+    metricas = {
+        'Modelo': ['Arbol_Decision_Global'],
+        'Accuracy_Mean': [np.mean(scores['test_accuracy'])],
+        'Accuracy_Std': [np.std(scores['test_accuracy'])],
+        'Precision_Mean': [np.mean(scores['test_precision'])],
+        'Recall_Mean': [np.mean(scores['test_recall'])],
+        'F1_Mean': [np.mean(scores['test_f1'])]
+    }
+    
+    df_metricas = pd.DataFrame(metricas)
+    print("\n--- Métricas de Desempeño (Promedio CV) ---")
+    print(df_metricas.T)
+    
+    # Guardar Métricas
+    archivo_metricas = os.path.join(directorio_salida, 'Metricas_Desempeno_ArbolDecision.csv')
+    df_metricas.to_csv(archivo_metricas, index=False)
+    
+    # Entrenar modelo final con todos los datos para feature importance
     arbol.fit(X, y)
     
     # Obtener importancias

@@ -4,6 +4,8 @@ import os
 import time
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import plot_tree
+from sklearn.model_selection import cross_validate, GroupKFold
+from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
 
 def evaluar_importancia_random_forest():
@@ -30,6 +32,8 @@ def evaluar_importancia_random_forest():
     if 'Puntaje' in df.columns:
         df = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
         y = df['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
+        # Obtener grupos (Sujetos) para validación correcta
+        grupos = df['Sujeto'].values
     else:
         print("Advertencia: No se pudo filtrar por puntaje.")
         return
@@ -44,12 +48,42 @@ def evaluar_importancia_random_forest():
         
     X = df[caracteristicas]
     print(f"Entrenando Random Forest con {X.shape[1]} características y {X.shape[0]} muestras...")
-    print("   - Esto puede tomar unos segundos (entrenando 100 árboles)...")
+    print("   - Esto puede tomar unos segundos...")
 
-    # Configurar y entrenar Random Forest
-    # n_estimators=100: Creamos 100 árboles
-    # n_jobs=-1: Usar todos los núcleos del procesador para ir más rápido
+    # Configurar Random Forest
     bosque = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced', n_jobs=-1)
+
+    # --- EVALUACIÓN DE DESEMPEÑO (Cross-Validation GroupKFold) ---
+    print("   - Calculando métricas de desempeño (Group K-Fold por Sujeto)...")
+    # Evitar fuga de información entre épocas del mismo sujeto
+    cv = GroupKFold(n_splits=5)
+    scoring = {
+        'accuracy': 'accuracy',
+        'precision': 'precision',
+        'recall': 'recall',
+        'f1': 'f1'
+    }
+    scores = cross_validate(bosque, X, y, cv=cv, scoring=scoring, groups=grupos)
+    
+    # Promediar métricas
+    metricas = {
+        'Modelo': ['Random_Forest_Global'],
+        'Accuracy_Mean': [np.mean(scores['test_accuracy'])],
+        'Accuracy_Std': [np.std(scores['test_accuracy'])],
+        'Precision_Mean': [np.mean(scores['test_precision'])],
+        'Recall_Mean': [np.mean(scores['test_recall'])],
+        'F1_Mean': [np.mean(scores['test_f1'])]
+    }
+    
+    df_metricas = pd.DataFrame(metricas)
+    print("\n--- Métricas de Desempeño (Promedio CV) ---")
+    print(df_metricas.T)
+    
+    # Guardar Métricas
+    archivo_metricas = os.path.join(directorio_salida, 'Metricas_Desempeno_RandomForest.csv')
+    df_metricas.to_csv(archivo_metricas, index=False)
+
+    # Entrenar feature importance en todos los datos
     bosque.fit(X, y)
     
     # Obtener importancias
