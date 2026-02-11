@@ -4,7 +4,7 @@ import os
 import time
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import plot_tree
-from sklearn.model_selection import cross_validate, GroupKFold
+from sklearn.model_selection import cross_validate, LeaveOneGroupOut
 from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
 
@@ -53,26 +53,36 @@ def evaluar_importancia_random_forest():
     # Configurar Random Forest
     bosque = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced', n_jobs=-1)
 
-    # --- EVALUACIÓN DE DESEMPEÑO (Cross-Validation GroupKFold) ---
+    # --- EVALUACIÓN DE DESEMPEÑO (Cross-Validation Leave-One-Group-Out) ---
     print("   - Calculando métricas de desempeño (Group K-Fold por Sujeto)...")
     # Evitar fuga de información entre épocas del mismo sujeto
-    cv = GroupKFold(n_splits=5)
+    logo = LeaveOneGroupOut()
     scoring = {
         'accuracy': 'accuracy',
-        'precision': 'precision',
-        'recall': 'recall',
-        'f1': 'f1'
+        
+        # Clase 0: Relajación
+        'precision_0': make_scorer(precision_score, pos_label=0, zero_division=0),
+        'recall_0':    make_scorer(recall_score, pos_label=0, zero_division=0),
+        'f1_0':        make_scorer(f1_score, pos_label=0, zero_division=0),
+        
+        # Clase 1: Ansiedad
+        'precision_1': make_scorer(precision_score, pos_label=1, zero_division=0),
+        'recall_1':    make_scorer(recall_score, pos_label=1, zero_division=0),
+        'f1_1':        make_scorer(f1_score, pos_label=1, zero_division=0)
     }
-    scores = cross_validate(bosque, X, y, cv=cv, scoring=scoring, groups=grupos)
+    scores = cross_validate(bosque, X, y, cv=logo, scoring=scoring, groups=grupos)
     
     # Promediar métricas
     metricas = {
         'Modelo': ['Random_Forest_Global'],
         'Accuracy_Mean': [np.mean(scores['test_accuracy'])],
         'Accuracy_Std': [np.std(scores['test_accuracy'])],
-        'Precision_Mean': [np.mean(scores['test_precision'])],
-        'Recall_Mean': [np.mean(scores['test_recall'])],
-        'F1_Mean': [np.mean(scores['test_f1'])]
+        'Precision_Relax_0': [np.mean(scores['test_precision_0'])],
+        'Recall_Relax_0': [np.mean(scores['test_recall_0'])],
+        'F1_Relax_0': [np.mean(scores['test_f1_0'])],
+        'Precision_Ansiedad_1': [np.mean(scores['test_precision_1'])],
+        'Recall_Ansiedad_1': [np.mean(scores['test_recall_1'])],
+        'F1_Ansiedad_1': [np.mean(scores['test_f1_1'])]
     }
     
     df_metricas = pd.DataFrame(metricas)

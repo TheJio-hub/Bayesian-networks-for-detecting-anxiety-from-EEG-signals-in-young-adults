@@ -3,7 +3,7 @@ import numpy as np
 import os
 import time
 from sklearn.tree import DecisionTreeClassifier, plot_tree
-from sklearn.model_selection import cross_validate, GroupKFold
+from sklearn.model_selection import cross_validate, LeaveOneGroupOut
 from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
 
@@ -56,24 +56,34 @@ def evaluar_importancia_arbol():
     print("   - Calculando métricas de desempeño (Group K-Fold por Sujeto)...")
     # Usamos GroupKFold para que NUNCA se mezclen épocas del mismo sujeto en train y test
     # Esto evita que el modelo memorice la "huella digital" del sujeto.
-    cv = GroupKFold(n_splits=5) 
+    logo = LeaveOneGroupOut()
     scoring = {
         'accuracy': 'accuracy',
-        'precision': 'precision',
-        'recall': 'recall',
-        'f1': 'f1'
+        
+        # Clase 0: Relajación
+        'precision_0': make_scorer(precision_score, pos_label=0, zero_division=0),
+        'recall_0':    make_scorer(recall_score, pos_label=0, zero_division=0),
+        'f1_0':        make_scorer(f1_score, pos_label=0, zero_division=0),
+        
+        # Clase 1: Ansiedad
+        'precision_1': make_scorer(precision_score, pos_label=1, zero_division=0),
+        'recall_1':    make_scorer(recall_score, pos_label=1, zero_division=0),
+        'f1_1':        make_scorer(f1_score, pos_label=1, zero_division=0)
     }
     # Pasamos grupos=grupos para asegurar independencia de sujetos
-    scores = cross_validate(arbol, X, y, cv=cv, scoring=scoring, groups=grupos)
+    scores = cross_validate(arbol, X, y, cv=logo, scoring=scoring, groups=grupos)
     
     # Promediar métricas
     metricas = {
         'Modelo': ['Arbol_Decision_Global'],
         'Accuracy_Mean': [np.mean(scores['test_accuracy'])],
         'Accuracy_Std': [np.std(scores['test_accuracy'])],
-        'Precision_Mean': [np.mean(scores['test_precision'])],
-        'Recall_Mean': [np.mean(scores['test_recall'])],
-        'F1_Mean': [np.mean(scores['test_f1'])]
+        'Precision_Relax_0': [np.mean(scores['test_precision_0'])],
+        'Recall_Relax_0': [np.mean(scores['test_recall_0'])],
+        'F1_Relax_0': [np.mean(scores['test_f1_0'])],
+        'Precision_Ansiedad_1': [np.mean(scores['test_precision_1'])],
+        'Recall_Ansiedad_1': [np.mean(scores['test_recall_1'])],
+        'F1_Ansiedad_1': [np.mean(scores['test_f1_1'])]
     }
     
     df_metricas = pd.DataFrame(metricas)
