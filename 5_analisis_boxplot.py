@@ -21,9 +21,14 @@ def generar_graficos_boxplot():
     cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo']
     cols_features = [c for c in df.columns if c not in cols_meta]
     
-    bandas_interes = ['Alpha', 'Beta']
+    # CORRECCIÓN: Incluir Delta y Gamma, que son las bandas más discriminantes según RF y DT
+    # También incluimos Alpha y Beta por referencia.
+    bandas_interes = ['Delta', 'Theta', 'Alpha', 'Beta', 'Gamma']
     canales_feature = []
     
+    # Lista de mejores características según tus resultados (Top 10 RF + mRMR)
+    top_canales = ['Fp1', 'Fp2', 'F7', 'Fz', 'T7', 'Pz', 'F3', 'F8']
+
     for col in cols_features:
         parts = col.split('_')
         if len(parts) < 2: continue
@@ -31,7 +36,9 @@ def generar_graficos_boxplot():
         banda = parts[1]
         
         if banda in bandas_interes:
-            if canal.startswith('F') or canal.startswith('T'):
+            # Filtramos solo por los canales que mostraron importancia en tus modelos
+            # para no generar 160 gráficas irrelevantes.
+            if canal in top_canales:
                 canales_feature.append(col)
                 
     

@@ -57,7 +57,7 @@ def evaluar_arboles_por_bandas():
         # Configurar Modelo: Árbol de Decisión
         clf = DecisionTreeClassifier(random_state=42, class_weight='balanced')
         
-        # Validación Cruzada (GroupKFold para evitar fuga de sujetos)
+        # Validación Cruzada (Leave-One-Group-Out) - Dejar 1 sujeto fuera
         logo = LeaveOneGroupOut()
         
         # DEFINIR MÉTRICAS ESPECÍFICAS POR CLASE (0: Relajación, 1: Ansiedad)
@@ -87,9 +87,9 @@ def evaluar_arboles_por_bandas():
         resultados_metricas.append({
             'Banda': banda,
             'Accuracy': mean_acc,
-            'Precision_Relax_0': np.mean(scores['test_precision_0']),
-            'Recall_Relax_0':    np.mean(scores['test_recall_0']),
-            'F1_Relax_0':        mean_f1_0,
+            'Precision_Relajacion_0': np.mean(scores['test_precision_0']),
+            'Recall_Relajacion_0':    np.mean(scores['test_recall_0']),
+            'F1_Relajacion_0':        mean_f1_0,
             'Precision_Ansiedad_1': np.mean(scores['test_precision_1']),
             'Recall_Ansiedad_1':    np.mean(scores['test_recall_1']),
             'F1_Ansiedad_1':        mean_f1_1
@@ -116,8 +116,8 @@ def evaluar_arboles_por_bandas():
     plt.figure(figsize=(10, 6))
     sns.barplot(data=df_resumen, x='Banda', y='Accuracy', palette='viridis')
     plt.ylim(0, 1.05)
-    plt.title('Exactitud (Accuracy) del Árbol de Decisión por Banda')
-    plt.ylabel('Exactitud Promedio (CV)')
+    plt.title('Accuracy del Árbol de Decisión por Banda')
+    plt.ylabel('Accuracy Promedio (CV)')
     for index, row in df_resumen.iterrows():
         plt.text(index, row.Accuracy + 0.01, f"{row.Accuracy:.4f}", color='black', ha="center")
     

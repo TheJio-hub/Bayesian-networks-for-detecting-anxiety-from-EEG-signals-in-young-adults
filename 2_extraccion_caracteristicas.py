@@ -35,7 +35,7 @@ def calcular_bandas_potencia(dataset_path):
     # Creamos un DataFrame para los resultados de características
     df_features = df[cols_meta].copy()
     
-    print("Calculando potencia espectral (PSD) por canal...")
+    # Procesar cada canal    
     
     for canal in lista_canales:
 
@@ -55,6 +55,11 @@ def calcular_bandas_potencia(dataset_path):
         # nperseg=128 nos da resolución de 1Hz. window='hann' es default.
         freqs, psd = welch(datos_canal, fs=fs, nperseg=128, axis=1)
         
+        # 0. Calcular Potencia TOTAL del canal (sumando todas las frecuencias relevantes 0.5-45Hz)
+        # Esto sirve para normalizar cada banda (Potencia Relativa)
+        idx_total = np.logical_and(freqs >= 0.5, freqs <= 45)
+        psd_total = psd[:, idx_total].sum(axis=1) # Usamos SUM, no mean, para representar energía total
+        
         # Calcular poder promedio para cada banda
         for nombre_banda, (baja, alta) in bandas.items():
             # Encontrar índices de frecuencias dentro de la banda
@@ -62,22 +67,37 @@ def calcular_bandas_potencia(dataset_path):
             
             # Promedio de potencia en esos índices
             # psd shape es (N_epocas, N_freqs)
-            potencia_banda = psd[:, idx_banda].mean(axis=1)
+            potencia_banda_abs = psd[:, idx_banda].sum(axis=1) # Suma para mantener consistencia con total
+            
+            # CALCULO DE POTENCIA RELATIVA: Banda / Total
+            # Evitar división por cero sumando un epsilon muy pequeño si es necesario
+            potencia_relativa = potencia_banda_abs / (psd_total + 1e-10)
             
             # Agregar al dataframe de resultados
             col_feature = f"{canal}_{nombre_banda}"
-            df_features[col_feature] = potencia_banda
+            df_features[col_feature] = potencia_relativa
             
-    print(f"Extracción inicial completada. Dimensiones: {df_features.shape}")
+    print(f"Extracción inicial completada (Potencia Relativa). Dimensiones: {df_features.shape}")
     
-    # CORRECCIÓN DE LÍNEA BASE (BASELINE CORRECTION)
-    # Restar la potencia promedio del Baseline a la potencia de la Actividad
-    print("Aplicando corrección de línea base (Resta de Potencia)...")
+    # MODIFICACION: Usar Potencia Relativa directamente SIN corregir Baseline.
+    # Objetivos:
+    # 1. Evitar tasas de acierto artificiales del 100% por anular la varianza en reposo.
+    # 2. Permitir que el modelo aprenda patrones de frecuencia reales (no solo 'cambio vs no-cambio').
+    # 3. Mantener la consistencia con el enfoque de Biomarcadores de Ansiedad.
+    
+    print("Omitiendo corrección de línea base (Usando Potencia Absoluta/Relativa Pura)...")
+    
+    # feature_cols ya contiene las columnas de características calculado arriba
+    feature_cols = [c for c in df_features.columns if c not in cols_meta]
+    
+    # Simplemente pasamos el dataframe como está (ya es Potencia Relativa)
+    # No hace falta código de resta.
+    
+    print(f"Procesamiento finalizado (Sin resta de baseline). Registros: {df_features.shape}")
     
     # Identificar columnas de características (las que terminan en _Delta, _Theta, etc.)
     feature_cols = [c for c in df_features.columns if c not in cols_meta]
     
-    # Separar Baselines y Actividad
     # Baselines tienen 'Baseline_' en la columna Tarea
     is_baseline = df_features['Tarea'].str.startswith('Baseline_')
     df_baselines = df_features[is_baseline].copy()
@@ -98,26 +118,26 @@ def calcular_bandas_potencia(dataset_path):
     baseline_means = df_baselines.groupby(['Sujeto', 'Tarea_Real', 'Trial'])[feature_cols].mean().reset_index()
     
     # Renombrar columnas de baseline para el merge (add suffix _base)
-    baseline_means = baseline_means.rename(columns={c: c + '_base' for c in feature_cols})
-    baseline_means = baseline_means.rename(columns={'Tarea_Real': 'Tarea'}) # Alinear clave para merge
+    # MODIFICACION: NO restar la línea base para evitar sesgo de magnitud entre clases.
+    # Usaremos la Potencia Absoluta tanto para Tareas como para Relajación.
+    # Esto asegura que el modelo aprenda patrones reales y no diferencias de escala artificiales.
     
-    # Merge activity con sus baselines
-    df_corrected = pd.merge(df_activity, baseline_means, on=['Sujeto', 'Tarea', 'Trial'], how='left')
+    # Comentar la sección de resta de baseline
+    # baseline_means = baseline_means.rename(columns={c: c + '_base' for c in feature_cols})
+    # baseline_means = baseline_means.rename(columns={'Tarea_Real': 'Tarea'})
     
-    # Aplicar resta solo donde hubo match (Relajación no tiene baseline, quedará NaN en _base)
-    # Tareas con Baseline: Aritmetica, Espejo, Stroop
-    for col in feature_cols:
-        col_base = col + '_base'
-        # Si col_base es no-nulo, restar. Si es nulo (Relajacion), mantener original.
-        # fillna(0) en la base para restar 0 a Relajacion
-        df_corrected[col] = df_corrected[col] - df_corrected[col_base].fillna(0)
+    # df_corrected = pd.merge(df_activity, baseline_means, on=['Sujeto', 'Tarea', 'Trial'], how='left')
     
-    # Limpiar columnas temporales
-    cols_to_drop = [c + '_base' for c in feature_cols]
-    df_corrected.drop(columns=cols_to_drop, inplace=True)
+    # for col in feature_cols:
+    #     col_base = col + '_base'
+    #     df_corrected[col] = df_corrected[col] - df_corrected[col_base].fillna(0)
     
-    df_features = df_corrected
-    print(f"Corrección finalizada. Registros finales (sin baselines): {df_features.shape}")
+    # cols_to_drop = [c + '_base' for c in feature_cols]
+    # df_corrected.drop(columns=cols_to_drop, inplace=True)
+    
+    # Usar df_activity directamente (Potencia Absoluta)
+    df_features = df_activity.copy()
+    print(f"Extracción finalizada (Potencia Absoluta). Registros: {df_features.shape}")
     
     # Guardar
     output_dir = 'Resultados'

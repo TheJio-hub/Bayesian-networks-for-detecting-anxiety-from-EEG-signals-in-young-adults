@@ -54,8 +54,8 @@ def evaluar_importancia_random_forest():
     bosque = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced', n_jobs=-1)
 
     # --- EVALUACIÓN DE DESEMPEÑO (Cross-Validation Leave-One-Group-Out) ---
-    print("   - Calculando métricas de desempeño (Group K-Fold por Sujeto)...")
-    # Evitar fuga de información entre épocas del mismo sujeto
+    print("   - Calculando métricas de desempeño (Leave-One-Group-Out - Una iteración por sujeto)...")
+    # Validación estricta: dejar un sujeto fuera
     logo = LeaveOneGroupOut()
     scoring = {
         'accuracy': 'accuracy',

@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 import time
-from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.tree import DecisionTreeClassifier, plot_tree, export_text
 from sklearn.model_selection import cross_validate, LeaveOneGroupOut
 from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
@@ -53,8 +53,8 @@ def evaluar_importancia_arbol():
     arbol = DecisionTreeClassifier(random_state=42, class_weight='balanced')
     
     # --- EVALUACIÓN DE DESEMPEÑO (Cross-Validation Leave-One-Group-Out) ---
-    print("   - Calculando métricas de desempeño (Group K-Fold por Sujeto)...")
-    # Usamos GroupKFold para que NUNCA se mezclen épocas del mismo sujeto en train y test
+    print("   - Calculando métricas de desempeño (Leave-One-Group-Out - Una iteración por sujeto)...")
+    # Usamos LeaveOneGroupOut para validar con un sujeto completamente nuevo en cada iteración
     # Esto evita que el modelo memorice la "huella digital" del sujeto.
     logo = LeaveOneGroupOut()
     scoring = {
@@ -135,6 +135,43 @@ def evaluar_importancia_arbol():
     archivo_resumen = os.path.join(directorio_salida, 'Importancia_ArbolDecision_ResumenBandas.csv')
     df_resumen.to_csv(archivo_resumen, index=False)
 
+    # --- NUEVO: Exportar Reglas detalladas ---
+    print("\nGenerando archivo de reglas completas del árbol...")
+    
+    # 1. Exportar Texto Humano Legible
+    reglas = export_text(arbol, feature_names=caracteristicas, show_weights=True)
+    archivo_reglas = os.path.join(directorio_salida, 'Reglas_Arbol_Completo.txt')
+    with open(archivo_reglas, 'w') as f:
+        f.write("Reglas de Decisión del Árbol Entrenado (Global):\n")
+        f.write("=================================================\n")
+        f.write(reglas)
+    print(f"Reglas textuales guardadas en: {archivo_reglas}")
+
+    # 2. Exportar Detalle de Nodos (CSV) para validación técnica
+    nodos_detalle = []
+    tree = arbol.tree_
+    for i in range(tree.node_count):
+        # Si es nodo hoja o decisión
+        es_hoja = (tree.children_left[i] == -1) and (tree.children_right[i] == -1)
+        
+        info = {
+            'Nodo_ID': i,
+            'Tipo': 'Hoja' if es_hoja else 'Decisión',
+            'Profundidad': 'ND', # Podríamos calcularla si quisieras
+            'Caracteristica_Usada': 'Ninguna' if es_hoja else caracteristicas[tree.feature[i]],
+            'Umbral': 'ND' if es_hoja else f"{tree.threshold[i]:.4f}",
+            'Impureza (Gini)': f"{tree.impurity[i]:.4f}",
+            'Muestras': tree.n_node_samples[i],
+            'Valor_Clase0_Relax': tree.value[i][0][0],
+            'Valor_Clase1_Ansiedad': tree.value[i][0][1] if len(tree.value[i][0]) > 1 else 0
+        }
+        nodos_detalle.append(info)
+    
+    df_nodos = pd.DataFrame(nodos_detalle)
+    archivo_nodos = os.path.join(directorio_salida, 'Nodos_Arbol_Detalle.csv')
+    df_nodos.to_csv(archivo_nodos, index=False)
+    print(f"Detalle de nodos guardado en: {archivo_nodos}")
+
     # --- NUEVO: Visualizar Estructura del Árbol ---
     print("Generando imagen de la estructura del árbol...")
     plt.figure(figsize=(24, 12)) # Tamaño grande para visualizar bien
@@ -143,9 +180,9 @@ def evaluar_importancia_arbol():
               class_names=['Relajación', 'Ansiedad'],
               filled=True, 
               rounded=True, 
-              max_depth=3, # Limitamos a 3 niveles para que sea legible
-              fontsize=11)
-    plt.title('Estructura del Árbol de Decisión (Primeros 3 niveles)')
+              max_depth=5, # Aumentamos profundidad visibilidad
+              fontsize=10)
+    plt.title('Estructura del Árbol de Decisión (Primeros 5 niveles)')
     
     archivo_estructura = os.path.join(directorio_salida, 'Estructura_Arbol.png')
     plt.savefig(archivo_estructura, dpi=300, bbox_inches='tight')

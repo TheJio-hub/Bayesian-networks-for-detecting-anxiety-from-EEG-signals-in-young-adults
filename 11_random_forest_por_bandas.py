@@ -85,9 +85,9 @@ def evaluar_random_forest_por_bandas():
         resultados_metricas.append({
             'Banda': banda,
             'Accuracy': mean_acc,
-            'Precision_Relax_0': np.mean(scores['test_precision_0']),
-            'Recall_Relax_0':    np.mean(scores['test_recall_0']),
-            'F1_Relax_0':        mean_f1_0,
+            'Precision_Relajacion_0': np.mean(scores['test_precision_0']),
+            'Recall_Relajacion_0':    np.mean(scores['test_recall_0']),
+            'F1_Relajacion_0':        mean_f1_0,
             'Precision_Ansiedad_1': np.mean(scores['test_precision_1']),
             'Recall_Ansiedad_1':    np.mean(scores['test_recall_1']),
             'F1_Ansiedad_1':        mean_f1_1
