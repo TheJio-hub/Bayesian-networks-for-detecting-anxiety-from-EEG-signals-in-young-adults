@@ -10,23 +10,17 @@ def generar_graficos_boxplot():
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
-    print(f"Cargando {input_file}...")
     df = pd.read_parquet(input_file)
     
-    # Definir grupos: Relajacion vs Ansiedad
-    print("Creando grupos: Relajacion (Puntaje == 0) vs Ansiedad (Puntaje >= 5)...")
     df = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
     df['Grupo'] = df['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')
     
     cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo']
     cols_features = [c for c in df.columns if c not in cols_meta]
     
-    # CORRECCIÓN: Incluir Delta y Gamma, que son las bandas más discriminantes según RF y DT
-    # También incluimos Alpha y Beta por referencia.
     bandas_interes = ['Delta', 'Theta', 'Alpha', 'Beta', 'Gamma']
     canales_feature = []
     
-    # Lista de mejores características según tus resultados (Top 10 RF + mRMR)
     top_canales = ['Fp1', 'Fp2', 'F7', 'Fz', 'T7', 'Pz', 'F3', 'F8']
 
     for col in cols_features:
@@ -36,8 +30,6 @@ def generar_graficos_boxplot():
         banda = parts[1]
         
         if banda in bandas_interes:
-            # Filtramos solo por los canales que mostraron importancia en tus modelos
-            # para no generar 160 gráficas irrelevantes.
             if canal in top_canales:
                 canales_feature.append(col)
                 
@@ -45,8 +37,6 @@ def generar_graficos_boxplot():
     sns.set_theme(style="whitegrid")
     
     for i, col in enumerate(canales_feature):
-        if i % 10 == 0:
-            print(f"Procesando {i}/{len(canales_feature)}: {col}")
             
         plt.figure(figsize=(8, 6))
         

@@ -78,42 +78,32 @@ def generar_conjunto_datos():
     ruta_escalas = os.path.join(ruta_base, 'scales.xls')
     ruta_locs = os.path.join(ruta_base, 'Coordinates.locs')
     
-    print("Cargando etiquetas de estrés...")
     busqueda_puntajes = cargar_escalas(ruta_escalas)
     
-    print("Cargando nombres de canales...")
     nombres_canales = cargar_nombres_canales(ruta_locs)
-    print(f"Canales detectados: {nombres_canales}")
     
+    # Lista de metadatos y datos EEG
     lista_metadatos = []
     lista_datos_eeg = []
-    archivos_fallidos = []
     
-    # Definir parámetros
+    # Parámetros EEG
     frecuencia_muestreo = 128
-    segundos_por_archivo = 25
-    segundos_descarte = 5 # Descartamos los primeros 5 segundos de adaptación/relajación
+    segundos_descarte = 5 
     muestras_descarte = segundos_descarte * frecuencia_muestreo
-    muestras_por_epoca = frecuencia_muestreo * 1 # 1 segundo por epoca
-    
-    print(f"Procesando archivos .mat... (Descartando primeros {segundos_descarte}s)")
-    
+    muestras_por_epoca = frecuencia_muestreo * 1 
+        
     archivos = sorted([f for f in os.listdir(ruta_filtrados) if f.endswith('.mat')])
-    total_archivos = len(archivos)
     
     for idx, nombre_archivo in enumerate(archivos):
-        if idx % 50 == 0:
-            print(f"Procesando archivo {idx}/{total_archivos}: {nombre_archivo}")
             
         try:
-            # Parse filename: e.g., Arithmetic_sub_1_trial1.mat
+            # Parse filename
             partes = nombre_archivo.replace('.mat', '').split('_')
             
-            # Manejo de nombres de tareas y traducción al español
+            # Identificar tarea por nombre de archivo
             tarea_archivo = ''
             if nombre_archivo.startswith('Mirror_image'):
-                tarea_archivo = 'Espejo' # Nombre traducido
-                # Mirror_image_sub_1_trial1 -> partes: ['Mirror', 'image', 'sub', '1', 'trial1']
+                tarea_archivo = 'Espejo' 
                 idx_sujeto = 3
                 idx_ensayo = 4
             elif nombre_archivo.startswith('Arithmetic'):
@@ -132,33 +122,25 @@ def generar_conjunto_datos():
             id_sujeto = int(partes[idx_sujeto])
             num_ensayo = int(partes[idx_ensayo].replace('trial', ''))
             
-            # Obtener Puntaje
             if tarea_archivo == 'Relajacion':
                 puntaje = 0
             else:
                 puntaje = busqueda_puntajes.get((id_sujeto, tarea_archivo, num_ensayo), np.nan)
             
-            # Cargar .mat
             mat = scipy.io.loadmat(os.path.join(ruta_filtrados, nombre_archivo))
             llave_datos = [k for k in mat.keys() if not k.startswith('__')][0]
-            datos_senal = mat[llave_datos] # Forma (32, 3200)
+            datos_senal = mat[llave_datos] 
             
-            # Validar forma
             if datos_senal.shape[1] < 3200:
-                 print(f"ADVERTENCIA: {nombre_archivo} es muy corto: {datos_senal.shape}. Saltando.")
                  continue
             
-            # Recortar a 25 segundos (3200 muestras) si es más largo
+            # Recortar a 25 segundos
             datos_senal = datos_senal[:, :3200]
-            
-            # Corrección de Línea Base aplicada a potencia 
-            # Solo aplica a tareas de Estrés. Relajación se mantiene sin corregir
-            
+
             if tarea_archivo == 'Relajacion':
-                # Para relajación: NO descartar nada, mantener los 25s completos.
                 pass
             else:
-                # 1. Extraer los datos de adaptación (primeros 5s) y guardarlos como BASELINE
+                # Extraer baseline (primeros 5s)
                 datos_base = datos_senal[:, :muestras_descarte]
                 num_epocas_base = datos_base.shape[1] // muestras_por_epoca
                 
@@ -169,7 +151,7 @@ def generar_conjunto_datos():
                     
                     registro = {
                         'Sujeto': id_sujeto,
-                        'Tarea': f"Baseline_{tarea_archivo}", # Etiqueta especial
+                        'Tarea': f"Baseline_{tarea_archivo}", 
                         'Trial': num_ensayo,
                         'Epoca': i_epoca + 1,
                         'Puntaje': puntaje
@@ -177,10 +159,10 @@ def generar_conjunto_datos():
                     lista_metadatos.append(registro)
                     lista_datos_eeg.append(datos_epoca.flatten())
 
-                # 2. Extraer los datos activos (segundos 5 al 25)
+                # Datos activos (segundos 5 al 25)
                 datos_senal = datos_senal[:, muestras_descarte:]
             
-            # Dividir en épocas de 1 segundo (128 muestras)
+            # Dividir en épocas
             num_epocas = datos_senal.shape[1] // muestras_por_epoca
             
             for i_epoca in range(num_epocas):
@@ -188,7 +170,6 @@ def generar_conjunto_datos():
                 fin = inicio + muestras_por_epoca
                 datos_epoca = datos_senal[:, inicio:fin] 
                 
-                # Crear registro de metadatos
                 registro = {
                     'Sujeto': id_sujeto,
                     'Tarea': tarea_archivo,
@@ -198,46 +179,30 @@ def generar_conjunto_datos():
                 }
                 lista_metadatos.append(registro)
                 
-                # Aplanar datos (Canal 1 [1..128], Canal 2 [1..128], ...)
                 lista_datos_eeg.append(datos_epoca.flatten())
                 
-        except Exception as e:
-            print(f"Error procesando {nombre_archivo}: {e}")
-            archivos_fallidos.append(nombre_archivo)
+        except Exception:
+            pass
 
-    print(f"Generación completa. Total épocas: {len(lista_metadatos)}")
-    
     # Crear DataFrames
-    print("Construyendo DataFrame...")
     df_meta = pd.DataFrame(lista_metadatos)
     
-    # Formato: Fp1_1, Fp1_2 ... o Channel_Sample
     nombres_cols_eeg = [f'{canal}_{m+1}' for canal in nombres_canales for m in range(muestras_por_epoca)]
     
     if len(nombres_cols_eeg) != len(lista_datos_eeg[0]):
-         print(f"Error dimensional: Cols={len(nombres_cols_eeg)}, Datos={len(lista_datos_eeg[0])}")
+         pass
     
     df_eeg = pd.DataFrame(lista_datos_eeg, columns=nombres_cols_eeg)
     
-    # Concatenar
     df_resultado = pd.concat([df_meta, df_eeg], axis=1)
     
-    # formato Parquet  (más ligero y rápido)
     output_dir = 'Resultados'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
     archivo_parquet = os.path.join(output_dir, 'datos_completo_epocas.parquet')
-    print(f"Guardando archivo Parquet: {archivo_parquet} ...")
     df_resultado.to_parquet(archivo_parquet, index=False)
-    print("¡Archivo Parquet guardado exitosamente!")
-    
-    # archivo_csv = 'datos_completo_epocas.csv'
-    # df_resultado.to_csv(archivo_csv, index=False)
-    
-    # Verificación
-    print("\nResumen del Dataset:")
-    print(df_resultado.groupby(['Tarea'])['Puntaje'].describe())
+
 
 if __name__ == "__main__":
     generar_conjunto_datos()
