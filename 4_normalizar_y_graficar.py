@@ -32,23 +32,17 @@ def normalizar_y_graficar_densidad():
 
     df_normalizado = df.copy()
     
-    print("Normalizando características por sujeto (Z-Score)...")
-    # Agrupar por sujeto y aplicar transformación Z-score a las características
     df_normalizado[columnas_caracteristicas] = df_normalizado.groupby('Sujeto')[columnas_caracteristicas].transform(puntuacion_z)
     
     if 'Puntaje' in df_normalizado.columns:
-        # Filtrar Grupos: Relajación (0) vs Ansiedad (>= 5)
-        # Esto elimina los puntajes intermedios (1-4) para limpiar el análisis
         mascara_filtro = (df_normalizado['Puntaje'] == 0) | (df_normalizado['Puntaje'] >= 5)
         df_normalizado = df_normalizado[mascara_filtro].copy()
         
         # Etiquetar grupos
         df_normalizado['Grupo'] = df_normalizado['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')
     
-    print(f"Guardando datos normalizados en: {archivo_salida_parquet}")
     df_normalizado.to_parquet(archivo_salida_parquet, index=False)
     
-    # Exportar CSV para visualización externa si es necesario
     df_normalizado.to_csv(archivo_salida_parquet.replace('.parquet', '.csv'), index=False)
 
     canales_referencia = ['A1', 'A2', 'M1', 'M2', 'REF', 'Ref', 'EXG1', 'EXG2']
@@ -58,13 +52,11 @@ def normalizar_y_graficar_densidad():
         partes = col.split('_')
         if len(partes) >= 2:
             canal = partes[0]
-            # Excluir canales de referencia si aparecen en las características
             if canal not in canales_referencia:
                 columnas_para_graficar.append(col)
             
     sns.set_theme(style="whitegrid")
     
-    print(f"Generando gráficos de densidad en {directorio_salida_graficos}...")
     for i, columna in enumerate(columnas_para_graficar):
             
         plt.figure(figsize=(10, 6))
@@ -98,7 +90,5 @@ def normalizar_y_graficar_densidad():
             print(f"Error graficando {columna}: {e}")
             plt.close()
     
-    print("Proceso de normalización y graficado completado.")
-
 if __name__ == "__main__":
     normalizar_y_graficar_densidad()
