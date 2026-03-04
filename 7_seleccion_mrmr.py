@@ -119,6 +119,10 @@ def ejecutar_mrmr_por_bandas():
         # Guardar Global
         archivo_salida_todo = os.path.join(directorio_salida, 'mRMR_Global.csv')
         df_mrmr_todo.to_csv(archivo_salida_todo, index=False)
+        
+        # Exportar también con el nombre 'ranking_caracteristicas.csv' para visualización
+        archivo_ranking_extra = os.path.join(directorio_salida, 'ranking_caracteristicas.csv')
+        df_mrmr_todo.to_csv(archivo_ranking_extra, index=False)
 
 if __name__ == "__main__":
     ejecutar_mrmr_por_bandas()

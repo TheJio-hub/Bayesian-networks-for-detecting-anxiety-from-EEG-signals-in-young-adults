@@ -68,6 +68,9 @@ def evaluar_importancia_random_forest():
     
     archivo_metricas = os.path.join(directorio_salida, 'Metricas_Desempeno_RandomForest.csv')
     df_metricas.to_csv(archivo_metricas, index=False)
+    
+    # Exportar también como Metricas_RF.csv
+    df_metricas.to_csv(os.path.join(directorio_salida, 'Metricas_RF.csv'), index=False)
 
     bosque.fit(X, y)
     

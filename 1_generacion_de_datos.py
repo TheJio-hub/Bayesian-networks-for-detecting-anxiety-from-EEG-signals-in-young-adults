@@ -90,7 +90,12 @@ def generar_conjunto_datos():
     frecuencia_muestreo = 128
     segundos_descarte = 5 
     muestras_descarte = segundos_descarte * frecuencia_muestreo
-    muestras_por_epoca = frecuencia_muestreo * 1 
+    
+    # Épocas de 5 segundos con solapamiento del 50%
+    duracion_epoca = 5 # segundos
+    solapamiento = 0.5 # 50%
+    muestras_por_epoca = int(frecuencia_muestreo * duracion_epoca)
+    paso_muestras = int(muestras_por_epoca * (1 - solapamiento))
         
     archivos = sorted([f for f in os.listdir(ruta_filtrados) if f.endswith('.mat')])
     
@@ -142,10 +147,16 @@ def generar_conjunto_datos():
             else:
                 # Extraer baseline (primeros 5s)
                 datos_base = datos_senal[:, :muestras_descarte]
-                num_epocas_base = datos_base.shape[1] // muestras_por_epoca
+                n_samples_base = datos_base.shape[1]
+                
+                # Calcular número de épocas con solapamiento
+                if n_samples_base >= muestras_por_epoca:
+                    num_epocas_base = (n_samples_base - muestras_por_epoca) // paso_muestras + 1
+                else:
+                    num_epocas_base = 0
                 
                 for i_epoca in range(num_epocas_base):
-                    inicio = i_epoca * muestras_por_epoca
+                    inicio = i_epoca * paso_muestras
                     fin = inicio + muestras_por_epoca
                     datos_epoca = datos_base[:, inicio:fin]
                     
@@ -162,11 +173,15 @@ def generar_conjunto_datos():
                 # Datos activos (segundos 5 al 25)
                 datos_senal = datos_senal[:, muestras_descarte:]
             
-            # Dividir en épocas
-            num_epocas = datos_senal.shape[1] // muestras_por_epoca
+            # Dividir en épocas con solapamiento
+            n_samples_active = datos_senal.shape[1]
+            if n_samples_active >= muestras_por_epoca:
+                num_epocas = (n_samples_active - muestras_por_epoca) // paso_muestras + 1
+            else:
+                num_epocas = 0
             
             for i_epoca in range(num_epocas):
-                inicio = i_epoca * muestras_por_epoca
+                inicio = i_epoca * paso_muestras
                 fin = inicio + muestras_por_epoca
                 datos_epoca = datos_senal[:, inicio:fin] 
                 
@@ -202,6 +217,14 @@ def generar_conjunto_datos():
 
     archivo_parquet = os.path.join(output_dir, 'datos_completo_epocas.parquet')
     df_resultado.to_parquet(archivo_parquet, index=False)
+    
+    # Generar CSV para visualización
+    archivo_csv = os.path.join(output_dir, 'datos_completo_epocas.csv')
+    df_resultado.to_csv(archivo_csv, index=False)
+    
+    # Exportar archivo específico con metadatos
+    archivo_meta = os.path.join(output_dir, 'metadatos_epocas_dataset.csv')
+    df_meta.to_csv(archivo_meta, index=False)
 
 
 if __name__ == "__main__":

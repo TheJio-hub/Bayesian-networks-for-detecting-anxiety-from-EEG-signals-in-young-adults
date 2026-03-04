@@ -68,6 +68,9 @@ def evaluar_importancia_arbol():
     archivo_metricas = os.path.join(directorio_salida, 'Metricas_Desempeno_ArbolDecision.csv')
     df_metricas.to_csv(archivo_metricas, index=False)
     
+    # Exportar también como Metricas_Arbol.csv
+    df_metricas.to_csv(os.path.join(directorio_salida, 'Metricas_Arbol.csv'), index=False)
+    
     arbol.fit(X, y)
     
     importancias = arbol.feature_importances_
