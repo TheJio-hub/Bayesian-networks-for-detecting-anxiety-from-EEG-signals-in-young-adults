@@ -103,7 +103,6 @@ def calcular_bandas_potencia(ruta_dataset):
     
     df_caracteristicas = corregir_linea_base_regresion(df_caracteristicas)
     
-    # Definir rutas de salida
     directorio_salida = 'Resultados'
     if not os.path.exists(directorio_salida):
         os.makedirs(directorio_salida)
