@@ -145,32 +145,6 @@ def generar_conjunto_datos():
             if tarea_archivo == 'Relajacion':
                 pass
             else:
-                # Extraer baseline (primeros 5s)
-                datos_base = datos_senal[:, :muestras_descarte]
-                n_samples_base = datos_base.shape[1]
-                
-                # Calcular número de épocas con solapamiento
-                if n_samples_base >= muestras_por_epoca:
-                    num_epocas_base = (n_samples_base - muestras_por_epoca) // paso_muestras + 1
-                else:
-                    num_epocas_base = 0
-                
-                for i_epoca in range(num_epocas_base):
-                    inicio = i_epoca * paso_muestras
-                    fin = inicio + muestras_por_epoca
-                    datos_epoca = datos_base[:, inicio:fin]
-                    
-                    registro = {
-                        'Sujeto': id_sujeto,
-                        'Tarea': f"Baseline_{tarea_archivo}", 
-                        'Trial': num_ensayo,
-                        'Epoca': i_epoca + 1,
-                        'Puntaje': puntaje
-                    }
-                    lista_metadatos.append(registro)
-                    lista_datos_eeg.append(datos_epoca.flatten())
-
-                # Datos activos (segundos 5 al 25)
                 datos_senal = datos_senal[:, muestras_descarte:]
             
             # Dividir en épocas con solapamiento
