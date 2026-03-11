@@ -17,17 +17,14 @@ def generar_graficos_densidad():
 
     df = pd.read_parquet(input_file)
     
-    # Filtrar datos validados (0: Relajación, >=5: Ansiedad)
     df_filtrado = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
     
     # Asignar etiquetas
     df_filtrado['Grupo'] = df_filtrado['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')
     
-    # Identificar columnas de características numéricas
     col_exclude = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
     feature_cols = [c for c in df_filtrado.columns if c not in col_exclude and pd.api.types.is_numeric_dtype(df_filtrado[c])]
     
-    # Excluir referencias (si existen)
     canales_referencia = ['A1', 'A2', 'M1', 'M2', 'REF', 'Ref', 'EXG1', 'EXG2']
     
     canales_feature = []
@@ -39,9 +36,7 @@ def generar_graficos_densidad():
                 canales_feature.append(col)
                 
     sns.set_theme(style="whitegrid")
-    
-    print(f"Generando gráficos de densidad para {len(canales_feature)} características...")
-    
+        
     for i, col in enumerate(canales_feature):
         plt.figure(figsize=(10, 6))
         

@@ -5,10 +5,6 @@ import os
 import numpy as np
 
 def graficar_densidad_normalizada():
-    """
-    Este script ahora sirve únicamente para visualizar las características ya normalizadas en el paso 2.
-    Ya NO se realiza una normalización adicional.
-    """
     archivo_entrada = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
     directorio_salida_graficos = os.path.join('Resultados', 'Análisis espectral (normalizado)')
     
@@ -19,13 +15,11 @@ def graficar_densidad_normalizada():
         print(f"No se encontró el archivo de entrada: {archivo_entrada}. Ejecuta el script 2 primero.")
         return
 
-    print(f"Cargando datos normalizados desde: {archivo_entrada}")
     df = pd.read_parquet(archivo_entrada)
     
     col_exclude = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
     columnas_caracteristicas = [c for c in df.columns if c not in col_exclude and pd.api.types.is_numeric_dtype(df[c])]
 
-    # Filtrar solo Relajación y Ansiedad >= 5 para visualización
     df_grafico = df.copy()
     if 'Puntaje' in df_grafico.columns:
         df_grafico = df_grafico[ (df_grafico['Puntaje'] == 0) | (df_grafico['Puntaje'] >= 5) ].copy()
@@ -42,9 +36,7 @@ def graficar_densidad_normalizada():
                 columnas_para_graficar.append(col)
             
     sns.set_theme(style="whitegrid")
-    
-    print(f"Generando gráficos para {len(columnas_para_graficar)} características...")
-    
+        
     for i, columna in enumerate(columnas_para_graficar):
             
         plt.figure(figsize=(10, 6))
@@ -59,7 +51,7 @@ def graficar_densidad_normalizada():
                 palette={'Relajacion': 'blue', 'Ansiedad': 'red'},
                 alpha=0.3, 
                 linewidth=2,
-                clip=(-5, 5) # Visualizar en el rango de +/- 5 desviaciones std
+                clip=(-5, 5) 
             )
             
             partes = columna.split('_')
@@ -75,7 +67,7 @@ def graficar_densidad_normalizada():
             plt.close()
             
         except Exception as e:
-            print(f"Error graficando {columna}: {e}")
+            print(f"Error {columna}: {e}")
             plt.close()
     
 if __name__ == "__main__":
