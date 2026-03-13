@@ -4,10 +4,7 @@ import matplotlib.pyplot as plt
 import os
 import numpy as np
 
-def generar_graficos_densidad():
-    input_file = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
-    output_dir = os.path.join('Resultados', 'Análisis espectral')
-    
+def graficar_densidades(input_file, output_dir, tipo_analisis):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
@@ -17,6 +14,7 @@ def generar_graficos_densidad():
 
     df = pd.read_parquet(input_file)
     
+    # Filtrar solo Relajación (0) y Ansiedad (>=5)
     df_filtrado = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
     
     # Asignar etiquetas
@@ -56,11 +54,26 @@ def generar_graficos_densidad():
             canal = parts[0]
             banda = parts[1] if len(parts) > 1 else "Banda"
             
-            plt.title(f'Densidad (Z-Score Rel.): {canal} - {banda}')
-            plt.xlabel('Z-Score (Log10 Power - Ref. Relajación)')
+            if tipo_analisis == "Log10":
+                titulo = f'Densidad (Log10 Power): {col}'
+                ejex = 'Log10 Power (dB)'
+            elif tipo_analisis == "Asimetria":
+                titulo = f'Densidad (Asimetría Z-Score): {col}'
+                ejex = 'Z-Score (Asimetría - Ref. Relajación)'
+            elif tipo_analisis == "Ratios":
+                titulo = f'Densidad (Ratio Z-Score): {col}'
+                ejex = 'Z-Score (Ratio - Ref. Relajación)'
+            else:
+                titulo = f'Densidad (Power Z-Score): {col}'
+                ejex = 'Z-Score (Log10 Power - Ref. Relajación)'
+
+            plt.title(titulo)
+            plt.xlabel(ejex)
             plt.ylabel('Densidad')
             
-            filename = os.path.join(output_dir, f"Densidad_{canal}_{banda}.png")
+            # Limpiar nombre de archivo de caracteres raros si los hubiera (ej. /)
+            safe_filename = col.replace('/', '_')
+            filename = os.path.join(output_dir, f"Densidad_{safe_filename}.png")
             plt.savefig(filename)
             plt.close()
             
@@ -68,5 +81,22 @@ def generar_graficos_densidad():
             print(f"Error graficando {col}: {e}")
             plt.close()
 
+def main():
+    archivo_norm = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
+    dir_norm = os.path.join('Resultados', 'Análisis espectral')
+    graficar_densidades(archivo_norm, dir_norm, "Normalizado")
+
+    archivo_log = os.path.join('Resultados', 'potencias_log10.parquet')
+    dir_log = os.path.join('Resultados', 'Análisis espectral Log10')
+    graficar_densidades(archivo_log, dir_log, "Log10")
+
+    archivo_asim = os.path.join('Resultados', 'datos_asimetria_normalizados.parquet')
+    dir_asim = os.path.join('Resultados', 'Análisis Asimetría')
+    graficar_densidades(archivo_asim, dir_asim, "Asimetria")
+
+    archivo_ratios = os.path.join('Resultados', 'datos_ratios_normalizados.parquet')
+    dir_ratios = os.path.join('Resultados', 'Análisis Ratios')
+    graficar_densidades(archivo_ratios, dir_ratios, "Ratios")
+
 if __name__ == "__main__":
-    generar_graficos_densidad()
+    main()
