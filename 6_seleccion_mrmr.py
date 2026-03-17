@@ -54,75 +54,67 @@ def seleccion_mrmr(X, y, n_seleccion):
     })
 
 def ejecutar_mrmr_por_bandas():
+    # Análisis por Bandas 
     archivo_entrada = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
     directorio_salida = os.path.join('Resultados', 'Ranking')
     
     if not os.path.exists(directorio_salida):
         os.makedirs(directorio_salida)
         
-    if not os.path.exists(archivo_entrada):
-        archivo_entrada = os.path.join('Resultados', 'datos_bandas.parquet')
-        if not os.path.exists(archivo_entrada):
-            return
-
-    df = pd.read_parquet(archivo_entrada)
-    
-    if 'Puntaje' in df.columns:
-        df = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
-        y = df['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
-    else:
-        return
-
-    bandas = ['Delta', 'Theta', 'Alpha', 'Beta', 'Gamma']
-    cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
-    todas_caracteristicas = [c for c in df.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df[c])]
-
-    for banda in bandas:
-        print(f"Banda: {banda}")
+    if os.path.exists(archivo_entrada):
+        df = pd.read_parquet(archivo_entrada)
         
-        cols_banda = [c for c in todas_caracteristicas if c.endswith(f"_{banda}")]
-        
-        if not cols_banda:
-            continue
+        if 'Puntaje' in df.columns:
+            # Filtrar clases extremas
+            df = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
+            y = df['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
             
-        n_total = len(cols_banda)
-        n_seleccion = int(n_total * 0.25) # 25%
-        if n_seleccion < 1: n_seleccion = 1
-        
-        X_banda = df[cols_banda]
-        
-        # Ejecutar mRMR
-        inicio = time.time()
-        df_mrmr = seleccion_mrmr(X_banda, y, n_seleccion)
-        tiempo_transcurrido = time.time() - inicio
-        
-        # Guardar
-        archivo_salida = os.path.join(directorio_salida, f'mRMR_{banda}.csv')
-        df_mrmr.to_csv(archivo_salida, index=False)
+            bandas = ['Delta', 'Theta', 'Alpha', 'Beta', 'Gamma']
+            cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
+            todas_caracteristicas = [c for c in df.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df[c])]
 
+            for banda in bandas:
+                cols_banda = [c for c in todas_caracteristicas if c.endswith(f"_{banda}")]
+                
+                if not cols_banda:
+                    continue
+                    
+                n_total = len(cols_banda)
+                n_seleccion = int(n_total * 0.25)
+                if n_seleccion < 1: n_seleccion = 1
+                
+                X_banda = df[cols_banda]
+                
+                print(f"Procesando mRMR banda: {banda}")
+                df_mrmr = seleccion_mrmr(X_banda, y, n_seleccion)
+                
+                archivo_salida = os.path.join(directorio_salida, f'mRMR_{banda}.csv')
+                df_mrmr.to_csv(archivo_salida, index=False)
 
-    if not todas_caracteristicas:
-        print("No se encontraron características para el análisis global.")
-    else:
-        n_total = len(todas_caracteristicas)
-        n_seleccion = int(n_total * 0.25) 
+    # Análisis Global Completo 
+    archivo_completo = os.path.join('Resultados', 'datos_completos_normalizados.parquet')
+    if os.path.exists(archivo_completo):
+        print("Iniciando mRMR Global Completo (Todas las características)...")
+        df_completo = pd.read_parquet(archivo_completo)
         
-        if n_seleccion < 1: n_seleccion = 1
+        # Filtrar clases
+        df_completo = df_completo[ (df_completo['Puntaje'] == 0) | (df_completo['Puntaje'] >= 5) ].copy()
+        y_completo = df_completo['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
         
-        X_todo = df[todas_caracteristicas]
+        cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
+        feats_completo = [c for c in df_completo.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df_completo[c])]
         
-        # Ejecutar mRMR Global
-        inicio = time.time()
-        df_mrmr_todo = seleccion_mrmr(X_todo, y, n_seleccion)
-        tiempo_transcurrido = time.time() - inicio
+        n_total = len(feats_completo)
+        n_seleccion = int(n_total * 0.25) # 25% de todo el conjunto
+        if n_seleccion < 5: n_seleccion = 5
         
-        # Guardar Global
-        archivo_salida_todo = os.path.join(directorio_salida, 'mRMR_Global.csv')
-        df_mrmr_todo.to_csv(archivo_salida_todo, index=False)
+        X_completo = df_completo[feats_completo]
         
-        # Exportar también con el nombre 'ranking_caracteristicas.csv' para visualización
-        archivo_ranking_extra = os.path.join(directorio_salida, 'ranking_caracteristicas.csv')
-        df_mrmr_todo.to_csv(archivo_ranking_extra, index=False)
+        df_mrmr_completo = seleccion_mrmr(X_completo, y_completo, n_seleccion)
+        
+        archivo_salida_completo = os.path.join(directorio_salida, 'mRMR_Universal_Completo.csv')
+        df_mrmr_completo.to_csv(archivo_salida_completo, index=False)
+        print(f"Ranking Global Completo guardado en: {archivo_salida_completo}")
 
 if __name__ == "__main__":
     ejecutar_mrmr_por_bandas()
