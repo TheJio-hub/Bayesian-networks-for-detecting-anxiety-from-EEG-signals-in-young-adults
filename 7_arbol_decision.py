@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
-from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
@@ -61,8 +61,8 @@ def principal():
     y = df_datos['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
     grupos = df_datos['Sujeto'].values
     
-    modelo = SVC(kernel='rbf', class_weight='balanced', random_state=42)
-    nombre_modelo = 'SVM'
+    modelo = DecisionTreeClassifier(random_state=42, class_weight='balanced', max_depth=5)
+    nombre_modelo = 'DT'
     
     fuentes_ranking = ['Fisher', 'Mutual_Info', 'mRMR', 'Random_Forest']
     
