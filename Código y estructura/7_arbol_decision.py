@@ -5,19 +5,19 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
-def obtener_top30_por_criterio(df_ranking, criterio):
+def obtener_top_n_por_criterio(df_ranking, criterio, n=30):
     if criterio == 'mRMR':
         sub = df_ranking.dropna(subset=['mRMR_Rank']).sort_values('mRMR_Rank', ascending=True)
-        return sub['Caracteristica'].tolist()[:30]
+        return sub['Caracteristica'].tolist()[:n]
     elif criterio == 'Fisher':
         sub = df_ranking.sort_values('Fisher_Score', ascending=False)
-        return sub['Caracteristica'].tolist()[:30]
+        return sub['Caracteristica'].tolist()[:n]
     elif criterio == 'Mutual_Info':
         sub = df_ranking.sort_values('Mutual_Info', ascending=False)
-        return sub['Caracteristica'].tolist()[:30]
+        return sub['Caracteristica'].tolist()[:n]
     elif criterio == 'Random_Forest':
         sub = df_ranking.sort_values('Importancia_RF', ascending=False)
-        return sub['Caracteristica'].tolist()[:30]
+        return sub['Caracteristica'].tolist()[:n]
     return []
 
 def entrenar_y_evaluar(X, y, grupos, modelo):
@@ -65,16 +65,23 @@ def principal():
     nombre_modelo = 'DT'
     
     fuentes_ranking = ['Fisher', 'Mutual_Info', 'mRMR', 'Random_Forest']
-    
+    cantidades_caracteristicas = [30, 20, 15]
+
     for criterio in fuentes_ranking:
-        mejores_caracteristicas = obtener_top30_por_criterio(df_ranking, criterio)
-        
-        X_subconjunto = df_datos[mejores_caracteristicas]
-        df_resultados = entrenar_y_evaluar(X_subconjunto, y, grupos, modelo)
-        
-        nombre_archivo = f"Resultados_{nombre_modelo}_Ranking_{criterio}.csv"
-        archivo_salida = os.path.join(dir_salida, nombre_archivo)
-        df_resultados.to_csv(archivo_salida)
+        for n_feat in cantidades_caracteristicas:
+            mejores_caracteristicas = obtener_top_n_por_criterio(df_ranking, criterio, n=n_feat)
+            
+            X_subconjunto = df_datos[mejores_caracteristicas]
+            df_resultados = entrenar_y_evaluar(X_subconjunto, y, grupos, modelo)
+            
+            if n_feat == 30:
+                nombre_archivo = f"Resultados_{nombre_modelo}_Ranking_{criterio}.csv"
+            else:
+                nombre_archivo = f"Resultados_{nombre_modelo}_Ranking_{criterio}_top{n_feat}.csv"
+                
+            archivo_salida = os.path.join(dir_salida, nombre_archivo)
+            df_resultados.to_csv(archivo_salida)
+            print(f"Guardado: {archivo_salida}")
 
 if __name__ == "__main__":
     principal()
