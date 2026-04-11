@@ -3,7 +3,7 @@ import numpy as np
 import os
 from sklearn.svm import SVC
 from sklearn.model_selection import LeaveOneGroupOut
-from sklearn.metrics import precision_recall_fscore_support, accuracy_score
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score, confusion_matrix
 
 def obtener_top_n_por_criterio(df_ranking, criterio, n=30):
     if criterio == 'mRMR':
@@ -35,18 +35,20 @@ def entrenar_y_evaluar(X, y, grupos, modelo):
         y_real_total.extend(y_prueba)
         y_predicha_total.extend(prediccion)
         
-    precision, sensibilidad, f1, _ = precision_recall_fscore_support(y_real_total, y_predicha_total, labels=[0, 1])
+    precision, sensibilidad, f1, _ = precision_recall_fscore_support(y_real_total, y_predicha_total, labels=[0, 1], zero_division=0)
     exactitud = accuracy_score(y_real_total, y_predicha_total)
+    tn, fp, fn, tp = confusion_matrix(y_real_total, y_predicha_total, labels=[0, 1]).ravel()
+    especificidad = tn / (tn + fp) if (tn + fp) else 0.0
     
     return pd.DataFrame([
-        {'Precision': precision[0], 'Sensibilidad': sensibilidad[0], 'Puntaje_F1': f1[0], 'Exactitud': exactitud},
-        {'Precision': precision[1], 'Sensibilidad': sensibilidad[1], 'Puntaje_F1': f1[1], 'Exactitud': exactitud}
+        {'Precision': precision[0], 'Sensibilidad': sensibilidad[0], 'Especificidad': especificidad, 'Puntaje_F1': f1[0], 'Exactitud': exactitud},
+        {'Precision': precision[1], 'Sensibilidad': sensibilidad[1], 'Especificidad': especificidad, 'Puntaje_F1': f1[1], 'Exactitud': exactitud}
     ], index=['Clase 0', 'Clase 1'])
 
 def principal():
-    archivo_ranking = os.path.join('Resultados', 'Analisis_Multicriterio', 'Ranking_Multicriterio_Completo.csv')
-    archivo_datos = os.path.join('Resultados', 'datos_completos_normalizados.parquet')
-    dir_salida = os.path.join('Resultados', 'Modelo (Usando Rankings)')
+    archivo_ranking = os.path.join('Resultados', 'Análisis global', 'Ranking_Multicriterio_Completo.csv')
+    archivo_datos = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
+    dir_salida = os.path.join('Resultados', 'Análisis global', 'Modelos (Usando Rankings)')
     
     if not os.path.exists(dir_salida):
         os.makedirs(dir_salida)
@@ -65,21 +67,20 @@ def principal():
     nombre_modelo = 'SVM'
     
     fuentes_ranking = ['Fisher', 'Mutual_Info', 'mRMR', 'Random_Forest']
-    cantidades_caracteristicas = [30, 20, 15]
+    top_configuraciones = [(15, 'Top 15'), (20, 'Top 20'), (30, 'Top 30')]
 
-    for criterio in fuentes_ranking:
-        for n_feat in cantidades_caracteristicas:
-            mejores_caracteristicas = obtener_top_n_por_criterio(df_ranking, criterio, n=n_feat)
+    for n_caracteristicas, nombre_carpeta in top_configuraciones:
+        directorio_top = os.path.join(dir_salida, nombre_carpeta)
+        os.makedirs(directorio_top, exist_ok=True)
+
+        for criterio in fuentes_ranking:
+            mejores_caracteristicas = obtener_top_n_por_criterio(df_ranking, criterio, n=n_caracteristicas)
             
             X_subconjunto = df_datos[mejores_caracteristicas]
             df_resultados = entrenar_y_evaluar(X_subconjunto, y, grupos, modelo)
             
-            if n_feat == 30:
-                nombre_archivo = f"Resultados_{nombre_modelo}_Ranking_{criterio}.csv"
-            else:
-                nombre_archivo = f"Resultados_{nombre_modelo}_Ranking_{criterio}_top{n_feat}.csv"
-                
-            archivo_salida = os.path.join(dir_salida, nombre_archivo)
+            nombre_archivo = f"Resultados_{nombre_modelo}_Ranking_{criterio}_top{n_caracteristicas}.csv"
+            archivo_salida = os.path.join(directorio_top, nombre_archivo)
             df_resultados.to_csv(archivo_salida)
             print(f"Guardado: {archivo_salida}")
 

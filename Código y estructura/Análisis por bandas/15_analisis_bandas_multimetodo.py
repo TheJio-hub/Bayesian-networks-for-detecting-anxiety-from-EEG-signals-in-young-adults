@@ -42,9 +42,9 @@ def dt_loso_metrics(X: pd.DataFrame, y: np.ndarray, groups: np.ndarray) -> tuple
 
 def main() -> None:
     root = os.path.join("Resultados")
-    data_path = os.path.join(root, "datos_bandas_normalizados.parquet")
-    ranking_dir = os.path.join(root, "Ranking")
-    out_dir = os.path.join(root, "Analisis_Bandas")
+    data_path = os.path.join(root, "Exploratorio", "datos_bandas_normalizados.parquet")
+    ranking_dir = os.path.join(root, "Análisis por bandas", "Ranking de características")
+    out_dir = os.path.join(root, "Análisis por bandas", "Análisis multimetodo")
     os.makedirs(out_dir, exist_ok=True)
 
     if not os.path.exists(data_path):
@@ -78,7 +78,7 @@ def main() -> None:
         mi_top1 = mi.index[0]
         mi_val = float(mi.iloc[0])
 
-        mrmr_path = os.path.join(ranking_dir, f"mRMR_{band}.csv")
+        mrmr_path = os.path.join(ranking_dir, band, f"mRMR_{band}.csv")
         if os.path.exists(mrmr_path):
             mrmr_df = pd.read_csv(mrmr_path)
             mrmr_top1 = str(mrmr_df.iloc[0]["Caracteristica"])

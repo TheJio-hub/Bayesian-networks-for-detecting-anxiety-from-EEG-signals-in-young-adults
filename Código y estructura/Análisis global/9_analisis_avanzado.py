@@ -86,8 +86,8 @@ def analizar_modelos_y_ramas(X, y, grupos, output_dir):
     return imp_rf, imp_dt
 
 def main():
-    archivo_entrada = os.path.join('Resultados', 'datos_completos_normalizados.parquet')
-    directorio_salida = os.path.join('Resultados', 'Analisis_Multicriterio')
+    archivo_entrada = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
+    directorio_salida = os.path.join('Resultados', 'Análisis global')
     
     if not os.path.exists(directorio_salida):
         os.makedirs(directorio_salida)

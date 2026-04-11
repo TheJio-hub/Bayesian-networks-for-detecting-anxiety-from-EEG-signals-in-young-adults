@@ -4,34 +4,37 @@ import os
 
 
 def comparar_global_vs_bandas():
-    dir_ranking_global = os.path.join('Resultados', 'Ranking')
-    dir_modelos_bandas = os.path.join('Resultados', 'Modelos')
-    dir_salida = os.path.join('Resultados', 'Modelos', 'Comparativa')
+    archivo_global_maestro = os.path.join('Resultados', 'Análisis global', 'Ranking_Multicriterio_Completo.csv')
+    dir_modelos_bandas = os.path.join('Resultados', 'Análisis por bandas', 'Modelos por banda')
+    dir_salida = os.path.join('Resultados', 'Análisis por bandas', 'Comparativa')
     
     if not os.path.exists(dir_salida):
         os.makedirs(dir_salida)
 
     modelos = [
-        ('ArbolDecision', 'Importancia_ArbolDecision.csv', 'Importancia_Arbol'),
-        ('RandomForest', 'Importancia_RandomForest.csv', 'Importancia_RandomForest')
+        ('ArbolDecision', 'Importancia_Arbol'),
+        ('RandomForest', 'Importancia_RandomForest')
     ]
     
     comparativa_total = []
 
-    for nombre_modelo, archivo_global, prefijo_banda in modelos:
-        
-        path_global = os.path.join(dir_ranking_global, archivo_global)
-        if not os.path.exists(path_global):
-            continue
-            
-        df_global = pd.read_csv(path_global)
+    if not os.path.exists(archivo_global_maestro):
+        return
+
+    df_global_maestro = pd.read_csv(archivo_global_maestro)
+
+    for nombre_modelo, prefijo_banda in modelos:
+        columna_importancia_global = 'Importancia_DT' if nombre_modelo == 'ArbolDecision' else 'Importancia_RF'
+        df_global = df_global_maestro[["Caracteristica", columna_importancia_global]].copy()
+        df_global = df_global.sort_values(columna_importancia_global, ascending=False).reset_index(drop=True)
+        df_global['Ranking'] = df_global.index + 1
         
         cache_bandas = {} 
         
         for idx, row in df_global.iterrows():
             feature = row['Caracteristica']
-            importancia_global = row['Importancia']
-            ranking_global = row['Ranking'] if 'Ranking' in row else idx + 1
+            importancia_global = row[columna_importancia_global]
+            ranking_global = row['Ranking']
             
             try:
                 partes = feature.split('_')

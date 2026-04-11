@@ -82,20 +82,20 @@ def graficar_densidades(input_file, output_dir, tipo_analisis):
             plt.close()
 
 def main():
-    archivo_norm = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
-    dir_norm = os.path.join('Resultados', 'Análisis espectral')
+    archivo_norm = os.path.join('Resultados', 'Exploratorio', 'datos_bandas_normalizados.parquet')
+    dir_norm = os.path.join('Resultados', 'Exploratorio', 'Análisis espectral')
     graficar_densidades(archivo_norm, dir_norm, "Normalizado")
 
-    archivo_log = os.path.join('Resultados', 'potencias_log10.parquet')
-    dir_log = os.path.join('Resultados', 'Análisis espectral Log10')
+    archivo_log = os.path.join('Resultados', 'Exploratorio', 'potencias_log10.parquet')
+    dir_log = os.path.join('Resultados', 'Exploratorio', 'Análisis espectral Log10')
     graficar_densidades(archivo_log, dir_log, "Log10")
 
-    archivo_asim = os.path.join('Resultados', 'datos_asimetria_normalizados.parquet')
-    dir_asim = os.path.join('Resultados', 'Análisis Asimetría')
+    archivo_asim = os.path.join('Resultados', 'Exploratorio', 'datos_asimetria_normalizados.parquet')
+    dir_asim = os.path.join('Resultados', 'Exploratorio', 'Análisis Asimetría')
     graficar_densidades(archivo_asim, dir_asim, "Asimetria")
 
-    archivo_ratios = os.path.join('Resultados', 'datos_ratios_normalizados.parquet')
-    dir_ratios = os.path.join('Resultados', 'Análisis Ratios')
+    archivo_ratios = os.path.join('Resultados', 'Exploratorio', 'datos_ratios_normalizados.parquet')
+    dir_ratios = os.path.join('Resultados', 'Exploratorio', 'Análisis Ratios')
     graficar_densidades(archivo_ratios, dir_ratios, "Ratios")
 
 if __name__ == "__main__":

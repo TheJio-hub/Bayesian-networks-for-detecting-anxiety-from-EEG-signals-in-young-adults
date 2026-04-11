@@ -4,13 +4,31 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import cross_validate, LeaveOneGroupOut
 from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score
 
 
+def columnas_ratio_por_banda(columnas, banda):
+    seleccionadas = []
+    for col in columnas:
+        if not col.startswith('Ratio_'):
+            continue
+        partes = col.split('_')
+        if len(partes) < 3:
+            continue
+        tipo_ratio = partes[1]
+        if banda in tipo_ratio:
+            seleccionadas.append(col)
+    return seleccionadas
+
+
 def evaluar_arboles_por_bandas():
-    archivo_entrada = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
-    directorio_salida = os.path.join('Resultados', 'Modelos')
+    archivo_entrada = os.path.join('Resultados', 'Exploratorio', 'datos_bandas_normalizados.parquet')
+    archivo_asimetria = os.path.join('Resultados', 'Exploratorio', 'datos_asimetria_normalizados.parquet')
+    archivo_ratios = os.path.join('Resultados', 'Exploratorio', 'datos_ratios_normalizados.parquet')
+    directorio_salida = os.path.join('Resultados', 'Análisis por bandas', 'Modelos por banda')
+    directorio_rankings = os.path.join('Resultados', 'Análisis por bandas', 'Ranking de características')
     
     if not os.path.exists(directorio_salida):
         os.makedirs(directorio_salida)
@@ -22,6 +40,9 @@ def evaluar_arboles_por_bandas():
         return
 
     df = pd.read_parquet(archivo_entrada)
+
+    df_asim = pd.read_parquet(archivo_asimetria) if os.path.exists(archivo_asimetria) else pd.DataFrame()
+    df_ratio = pd.read_parquet(archivo_ratios) if os.path.exists(archivo_ratios) else pd.DataFrame()
     
     if 'Puntaje' in df.columns:
         df = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
@@ -29,6 +50,18 @@ def evaluar_arboles_por_bandas():
         grupos = df['Sujeto'].values
     else:
         return
+
+    if not df_asim.empty and 'Puntaje' in df_asim.columns:
+        df_asim = df_asim[(df_asim['Puntaje'] == 0) | (df_asim['Puntaje'] >= 5)].copy()
+        y_asim = df_asim['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
+    else:
+        y_asim = np.array([])
+
+    if not df_ratio.empty and 'Puntaje' in df_ratio.columns:
+        df_ratio = df_ratio[(df_ratio['Puntaje'] == 0) | (df_ratio['Puntaje'] >= 5)].copy()
+        y_ratio = df_ratio['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
+    else:
+        y_ratio = np.array([])
 
     cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
     todas_caracteristicas = [c for c in df.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df[c])]
@@ -81,6 +114,46 @@ def evaluar_arboles_por_bandas():
         df_imp = df_imp.sort_values(by='Importancia', ascending=False)
         
         df_imp.to_csv(os.path.join(directorio_salida, f'Importancia_Arbol_{banda}.csv'), index=False)
+
+        rf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced', n_jobs=-1)
+        rf.fit(X_banda, y)
+        df_rf = pd.DataFrame({'Caracteristica': cols_banda, 'Importancia': rf.feature_importances_})
+        df_rf = df_rf.sort_values(by='Importancia', ascending=False)
+        df_rf.to_csv(os.path.join(directorio_salida, f'Importancia_RandomForest_{banda}.csv'), index=False)
+
+        # DT para asimetria por banda
+        dir_asim = os.path.join(directorio_rankings, banda, 'Asimetria')
+        os.makedirs(dir_asim, exist_ok=True)
+        if not df_asim.empty:
+            cols_asim = [c for c in df_asim.columns if c.startswith('Asym_') and c.endswith(f'_{banda}')]
+            if cols_asim:
+                X_asim = df_asim[cols_asim]
+                dt_asim = DecisionTreeClassifier(random_state=42, class_weight='balanced')
+                dt_asim.fit(X_asim, y_asim)
+                df_dt_asim = pd.DataFrame({'Caracteristica': cols_asim, 'Importancia_DT': dt_asim.feature_importances_})
+                df_dt_asim = df_dt_asim.sort_values(by='Importancia_DT', ascending=False)
+                df_dt_asim.to_csv(os.path.join(dir_asim, f'DT_Asimetria_{banda}.csv'), index=False)
+            else:
+                pd.DataFrame(columns=['Caracteristica', 'Importancia_DT']).to_csv(
+                    os.path.join(dir_asim, f'DT_Asimetria_{banda}.csv'), index=False
+                )
+
+        # DT para ratios por banda
+        dir_ratios = os.path.join(directorio_rankings, banda, 'Ratios')
+        os.makedirs(dir_ratios, exist_ok=True)
+        if not df_ratio.empty:
+            cols_ratio = columnas_ratio_por_banda(df_ratio.columns.tolist(), banda)
+            if cols_ratio:
+                X_ratio = df_ratio[cols_ratio]
+                dt_ratio = DecisionTreeClassifier(random_state=42, class_weight='balanced')
+                dt_ratio.fit(X_ratio, y_ratio)
+                df_dt_ratio = pd.DataFrame({'Caracteristica': cols_ratio, 'Importancia_DT': dt_ratio.feature_importances_})
+                df_dt_ratio = df_dt_ratio.sort_values(by='Importancia_DT', ascending=False)
+                df_dt_ratio.to_csv(os.path.join(dir_ratios, f'DT_Ratios_{banda}.csv'), index=False)
+            else:
+                pd.DataFrame(columns=['Caracteristica', 'Importancia_DT']).to_csv(
+                    os.path.join(dir_ratios, f'DT_Ratios_{banda}.csv'), index=False
+                )
 
     df_resumen = pd.DataFrame(resultados_metricas)
     archivo_resumen = os.path.join(directorio_salida, 'Resumen_Metricas_Arbol_Por_Bandas.csv')

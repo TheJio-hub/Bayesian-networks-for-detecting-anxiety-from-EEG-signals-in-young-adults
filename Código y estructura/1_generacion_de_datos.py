@@ -185,7 +185,7 @@ def generar_conjunto_datos():
     
     df_resultado = pd.concat([df_meta, df_eeg], axis=1)
     
-    output_dir = 'Resultados'
+    output_dir = os.path.join('Resultados', 'Exploratorio')
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 

@@ -146,7 +146,7 @@ def calcular_bandas_potencia(ruta_dataset):
     df_bands = pd.DataFrame(nuevas_columnas)
     df_caracteristicas = pd.concat([df[columnas_metadatos].reset_index(drop=True), df_bands], axis=1)
 
-    directorio_salida = 'Resultados'
+    directorio_salida = os.path.join('Resultados', 'Exploratorio')
     if not os.path.exists(directorio_salida):
         os.makedirs(directorio_salida)
 
@@ -194,6 +194,6 @@ def calcular_bandas_potencia(ruta_dataset):
     return df_merged
 
 if __name__ == "__main__":
-    ruta_entrada = os.path.join('Resultados', 'datos_completo_epocas.parquet')
+    ruta_entrada = os.path.join('Resultados', 'Exploratorio', 'datos_completo_epocas.parquet')
     if os.path.exists(ruta_entrada):
         calcular_bandas_potencia(ruta_entrada)

@@ -4,8 +4,8 @@ import matplotlib.pyplot as plt
 import os
 
 def generar_graficos_boxplot():
-    input_file = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
-    output_dir = os.path.join('Resultados', 'Análisis boxplot (normalizado)')
+    input_file = os.path.join('Resultados', 'Exploratorio', 'datos_bandas_normalizados.parquet')
+    output_dir = os.path.join('Resultados', 'Exploratorio', 'Análisis boxplot (normalizado)')
     
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)

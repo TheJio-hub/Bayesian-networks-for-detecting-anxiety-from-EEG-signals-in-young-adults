@@ -3,7 +3,7 @@ import os
 import glob
 
 def principal():
-    dir_base = "Resultados/Modelo (Usando Rankings)"
+    dir_base = "Resultados/Análisis global/Modelos (Usando Rankings)"
     dir_resultados = os.path.join(dir_base, "Top 30")  # Ruta actualizada al moverse los archivos
     
     # Comprobar si el directorio existe
@@ -13,7 +13,7 @@ def principal():
 
     todos_los_archivos = glob.glob(os.path.join(dir_resultados, "*.csv"))
     # Filtrar solo archivos de Top 30 
-    archivos_top30 = [f for f in todos_los_archivos if "_top20" not in f and "Mejor_Resultado" not in f and "Resumen_Mejores" not in f]
+    archivos_top30 = [f for f in todos_los_archivos if "_top30" in f and "Mejor_Resultado" not in f and "Resumen_Mejores" not in f]
 
     clasificadores = ["DT", "RF", "KNN", "SVM"]
     nombres_clasificadores = {
@@ -50,7 +50,7 @@ def principal():
                     
                     # Extraer el nombre del ranking
                     nombre_archivo = os.path.basename(ruta_archivo)
-                    parte_ranking = nombre_archivo.replace(f"Resultados_{codigo_clf}_Ranking_", "").replace(".csv", "")
+                    parte_ranking = nombre_archivo.replace(f"Resultados_{codigo_clf}_Ranking_", "").replace("_top30.csv", "")
                     
                     # Crear filas para Clase 0 y Clase 1 siguiendo la estructura solicitada
                     # Fila 1: Clase 0
@@ -60,6 +60,7 @@ def principal():
                         "Clase": "Clase 0 (Relajación)",
                         "Precision": df.loc["Clase 0", "Precision"],
                         "Sensibilidad": df.loc["Clase 0", "Sensibilidad"],
+                        "Especificidad": df.loc["Clase 0", "Especificidad"],
                         "Puntaje_F1": df.loc["Clase 0", "Puntaje_F1"],
                         "Exactitud": exactitud
                     }
@@ -71,6 +72,7 @@ def principal():
                         "Clase": "Clase 1 (Ansiedad)",
                         "Precision": df.loc["Clase 1", "Precision"],
                         "Sensibilidad": df.loc["Clase 1", "Sensibilidad"],
+                        "Especificidad": df.loc["Clase 1", "Especificidad"],
                         "Puntaje_F1": df.loc["Clase 1", "Puntaje_F1"],
                         "Exactitud": exactitud
                     }
@@ -140,7 +142,7 @@ def principal():
     df_final.to_csv(ruta_salida, index=False)
     
     print(f"\nArchivo consolidado guardado en: {ruta_salida}")
-    print(df_final.to_markdown(index=False, floatfmt=".4f"))
+    print(df_final.to_string(index=False, float_format=lambda x: f"{x:.4f}"))
 
 if __name__ == "__main__":
     principal()

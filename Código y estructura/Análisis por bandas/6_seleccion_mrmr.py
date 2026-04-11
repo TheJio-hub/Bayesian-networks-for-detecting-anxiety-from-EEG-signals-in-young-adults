@@ -4,6 +4,20 @@ import os
 import time
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
+
+def columnas_ratio_por_banda(columnas, banda):
+    seleccionadas = []
+    for col in columnas:
+        if not col.startswith('Ratio_'):
+            continue
+        partes = col.split('_')
+        if len(partes) < 3:
+            continue
+        tipo_ratio = partes[1]
+        if banda in tipo_ratio:
+            seleccionadas.append(col)
+    return seleccionadas
+
 def seleccion_mrmr(X, y, n_seleccion):
     """
     Selecciona n_seleccion características maximizando (Relevancia - Redundancia).
@@ -55,12 +69,15 @@ def seleccion_mrmr(X, y, n_seleccion):
 
 def ejecutar_mrmr_por_bandas():
     # Análisis por Bandas 
-    archivo_entrada = os.path.join('Resultados', 'datos_bandas_normalizados.parquet')
-    directorio_salida = os.path.join('Resultados', 'Ranking')
+    archivo_entrada = os.path.join('Resultados', 'Exploratorio', 'datos_bandas_normalizados.parquet')
+    directorio_salida = os.path.join('Resultados', 'Análisis por bandas', 'Ranking de características')
     
     if not os.path.exists(directorio_salida):
         os.makedirs(directorio_salida)
         
+    archivo_asimetria = os.path.join('Resultados', 'Exploratorio', 'datos_asimetria_normalizados.parquet')
+    archivo_ratios = os.path.join('Resultados', 'Exploratorio', 'datos_ratios_normalizados.parquet')
+
     if os.path.exists(archivo_entrada):
         df = pd.read_parquet(archivo_entrada)
         
@@ -84,37 +101,47 @@ def ejecutar_mrmr_por_bandas():
                 if n_seleccion < 1: n_seleccion = 1
                 
                 X_banda = df[cols_banda]
+                os.makedirs(os.path.join(directorio_salida, banda), exist_ok=True)
                 
                 print(f"Procesando mRMR banda: {banda}")
                 df_mrmr = seleccion_mrmr(X_banda, y, n_seleccion)
                 
-                archivo_salida = os.path.join(directorio_salida, f'mRMR_{banda}.csv')
+                archivo_salida = os.path.join(directorio_salida, banda, f'mRMR_{banda}.csv')
                 df_mrmr.to_csv(archivo_salida, index=False)
 
-    # Análisis Global Completo 
-    archivo_completo = os.path.join('Resultados', 'datos_completos_normalizados.parquet')
-    if os.path.exists(archivo_completo):
-        print("Iniciando mRMR Global Completo (Todas las características)...")
-        df_completo = pd.read_parquet(archivo_completo)
-        
-        # Filtrar clases
-        df_completo = df_completo[ (df_completo['Puntaje'] == 0) | (df_completo['Puntaje'] >= 5) ].copy()
-        y_completo = df_completo['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
-        
-        cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
-        feats_completo = [c for c in df_completo.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df_completo[c])]
-        
-        n_total = len(feats_completo)
-        n_seleccion = int(n_total * 0.25) # 25% de todo el conjunto
-        if n_seleccion < 5: n_seleccion = 5
-        
-        X_completo = df_completo[feats_completo]
-        
-        df_mrmr_completo = seleccion_mrmr(X_completo, y_completo, n_seleccion)
-        
-        archivo_salida_completo = os.path.join(directorio_salida, 'mRMR_Universal_Completo.csv')
-        df_mrmr_completo.to_csv(archivo_salida_completo, index=False)
-        print(f"Ranking Global Completo guardado en: {archivo_salida_completo}")
+                # Asimetria por banda
+                dir_asim = os.path.join(directorio_salida, banda, 'Asimetria')
+                os.makedirs(dir_asim, exist_ok=True)
+                if os.path.exists(archivo_asimetria):
+                    df_asim = pd.read_parquet(archivo_asimetria)
+                    df_asim = df_asim[(df_asim['Puntaje'] == 0) | (df_asim['Puntaje'] >= 5)].copy()
+                    cols_asim = [c for c in df_asim.columns if c.startswith('Asym_') and c.endswith(f'_{banda}')]
+                    if cols_asim:
+                        X_asim = df_asim[cols_asim]
+                        df_mrmr_asim = seleccion_mrmr(X_asim, y, len(cols_asim))
+                        df_mrmr_asim.to_csv(os.path.join(dir_asim, f'mRMR_Asimetria_{banda}.csv'), index=False)
+                    else:
+                        pd.DataFrame(columns=['Orden_Seleccion', 'Caracteristica', 'Relevancia_Original']).to_csv(
+                            os.path.join(dir_asim, f'mRMR_Asimetria_{banda}.csv'), index=False
+                        )
+
+                # Ratios por banda
+                dir_ratios = os.path.join(directorio_salida, banda, 'Ratios')
+                os.makedirs(dir_ratios, exist_ok=True)
+                if os.path.exists(archivo_ratios):
+                    df_rat = pd.read_parquet(archivo_ratios)
+                    df_rat = df_rat[(df_rat['Puntaje'] == 0) | (df_rat['Puntaje'] >= 5)].copy()
+                    cols_ratio = columnas_ratio_por_banda(df_rat.columns.tolist(), banda)
+                    if cols_ratio:
+                        X_ratio = df_rat[cols_ratio]
+                        df_mrmr_ratio = seleccion_mrmr(X_ratio, y, len(cols_ratio))
+                        df_mrmr_ratio.to_csv(os.path.join(dir_ratios, f'mRMR_Ratios_{banda}.csv'), index=False)
+                    else:
+                        pd.DataFrame(columns=['Orden_Seleccion', 'Caracteristica', 'Relevancia_Original']).to_csv(
+                            os.path.join(dir_ratios, f'mRMR_Ratios_{banda}.csv'), index=False
+                        )
+
+    return None
 
 if __name__ == "__main__":
     ejecutar_mrmr_por_bandas()
