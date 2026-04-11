@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 from sklearn.feature_selection import mutual_info_classif
+from sklearn.tree import DecisionTreeClassifier
 
 def fisher_score_func(X, y):
     classes = np.unique(y)
@@ -57,6 +58,21 @@ def guardar_ranking_fisher_mi(X, y, ruta_fisher, ruta_mi):
         'MI_Score': m_scores
     }).sort_values(by='MI_Score', ascending=False)
     df_mi.to_csv(ruta_mi, index=False)
+
+
+def guardar_ranking_dt(X, y, ruta_dt):
+    if X.shape[1] == 0:
+        pd.DataFrame(columns=['Caracteristica', 'Importancia_DT']).to_csv(ruta_dt, index=False)
+        return
+
+    X_num = X.apply(pd.to_numeric, errors='coerce').fillna(0)
+    dt = DecisionTreeClassifier(random_state=42, class_weight='balanced', max_depth=5)
+    dt.fit(X_num, y)
+    df_dt = pd.DataFrame({
+        'Caracteristica': X.columns,
+        'Importancia_DT': dt.feature_importances_
+    }).sort_values(by='Importancia_DT', ascending=False)
+    df_dt.to_csv(ruta_dt, index=False)
 
 def evaluar_caracteristicas_por_banda():
     input_file = os.path.join('Resultados', 'Exploratorio', 'datos_bandas_normalizados.parquet')
@@ -114,6 +130,15 @@ def evaluar_caracteristicas_por_banda():
         except Exception as e:
             print(f"Error Fisher/MI {banda}: {e}")
 
+        try:
+            guardar_ranking_dt(
+                X_banda,
+                y,
+                os.path.join(output_dir, banda, f'DT_{banda}.csv')
+            )
+        except Exception as e:
+            print(f"Error DT {banda}: {e}")
+
         # Asimetria por banda
         dir_asim = os.path.join(output_dir, banda, 'Asimetria')
         os.makedirs(dir_asim, exist_ok=True)
@@ -130,6 +155,15 @@ def evaluar_caracteristicas_por_banda():
         except Exception as e:
             print(f"Error Fisher/MI Asimetria {banda}: {e}")
 
+        try:
+            guardar_ranking_dt(
+                X_asim,
+                y,
+                os.path.join(dir_asim, f'DT_Asimetria_{banda}.csv')
+            )
+        except Exception as e:
+            print(f"Error DT Asimetria {banda}: {e}")
+
         # Ratios por banda
         dir_ratios = os.path.join(output_dir, banda, 'Ratios')
         os.makedirs(dir_ratios, exist_ok=True)
@@ -145,6 +179,15 @@ def evaluar_caracteristicas_por_banda():
             )
         except Exception as e:
             print(f"Error Fisher/MI Ratios {banda}: {e}")
+
+        try:
+            guardar_ranking_dt(
+                X_ratio,
+                y,
+                os.path.join(dir_ratios, f'DT_Ratios_{banda}.csv')
+            )
+        except Exception as e:
+            print(f"Error DT Ratios {banda}: {e}")
 
 if __name__ == "__main__":
     evaluar_caracteristicas_por_banda()
