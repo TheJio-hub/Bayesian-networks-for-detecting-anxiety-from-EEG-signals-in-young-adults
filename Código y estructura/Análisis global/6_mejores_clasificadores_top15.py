@@ -3,8 +3,8 @@ import os
 import glob
 
 def principal():
-    dir_base = "Resultados/Análisis global/Modelos (Usando Rankings)"
-    dir_resultados = os.path.join(dir_base, "Top 20")
+    dir_base = "Resultados/Análisis global/Modelos generados"
+    dir_resultados = os.path.join(dir_base, "Top 15")
     
     # Comprobar si el directorio existe
     if not os.path.exists(dir_resultados):
@@ -12,8 +12,8 @@ def principal():
         return
 
     todos_los_archivos = glob.glob(os.path.join(dir_resultados, "*.csv"))
-    # Filtrar solo archivos de Top 20 
-    archivos_top20 = [f for f in todos_los_archivos if "_top20" in f and "Mejor_Resultado" not in f and "Resumen_Mejores" not in f]
+    # Filtrar solo archivos de Top 15
+    archivos_top15 = [f for f in todos_los_archivos if "_top15" in f and "Mejor_Resultado" not in f and "Resumen_Mejores" not in f]
 
     clasificadores = ["DT", "RF", "KNN", "SVM"]
     nombres_clasificadores = {
@@ -25,7 +25,7 @@ def principal():
 
     mejores_filas = []
 
-    print("Buscando los mejores modelos para Top 20 características (Apilado)...")
+    print("Buscando los mejores modelos para Top 15 características (Apilado)...")
 
     for codigo_clf in clasificadores:
         mejor_exactitud = -1.0
@@ -33,7 +33,7 @@ def principal():
         mejor_nombre_ranking = None
 
         # Filtrar archivos para este clasificador
-        archivos_clasificador = [f for f in archivos_top20 if f"Resultados_{codigo_clf}_" in os.path.basename(f)]
+        archivos_clasificador = [f for f in archivos_top15 if f"Resultados_{codigo_clf}_" in os.path.basename(f)]
 
         for ruta_archivo in archivos_clasificador:
             try:
@@ -47,7 +47,7 @@ def principal():
                     mejor_exactitud = exactitud
                     
                     nombre_archivo = os.path.basename(ruta_archivo)
-                    parte_ranking = nombre_archivo.replace(f"Resultados_{codigo_clf}_Ranking_", "").replace("_top20.csv", "")
+                    parte_ranking = nombre_archivo.replace(f"Resultados_{codigo_clf}_Ranking_", "").replace("_top15.csv", "")
                     
                     fila_c0 = {
                         "Clasificador": nombres_clasificadores[codigo_clf],
@@ -104,7 +104,7 @@ def principal():
         else:
             clave_actual = clave_fila
             
-    nombre_archivo_salida = "Resumen_Mejores_Modelos_Top20_Apilado.csv"
+    nombre_archivo_salida = "Resumen_Mejores_Modelos_Top15_Apilado.csv"
     ruta_salida = os.path.join(dir_resultados, nombre_archivo_salida)
     df_final.to_csv(ruta_salida, index=False)
     

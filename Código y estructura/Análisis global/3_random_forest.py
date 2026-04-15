@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score, confusion_matrix
 
@@ -48,7 +48,7 @@ def entrenar_y_evaluar(X, y, grupos, modelo):
 def principal():
     archivo_ranking = os.path.join('Resultados', 'Análisis global', 'Ranking_Multicriterio_Completo.csv')
     archivo_datos = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
-    dir_salida = os.path.join('Resultados', 'Análisis global', 'Modelos (Usando Rankings)')
+    dir_salida = os.path.join('Resultados', 'Análisis global', 'Modelos generados')
     
     if not os.path.exists(dir_salida):
         os.makedirs(dir_salida)
@@ -63,8 +63,8 @@ def principal():
     y = df_datos['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
     grupos = df_datos['Sujeto'].values
     
-    modelo = KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
-    nombre_modelo = 'KNN'
+    modelo = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced', n_jobs=-1)
+    nombre_modelo = 'RF'
     
     fuentes_ranking = ['Fisher', 'Mutual_Info', 'mRMR', 'Random_Forest']
     top_configuraciones = [(15, 'Top 15'), (20, 'Top 20'), (30, 'Top 30')]

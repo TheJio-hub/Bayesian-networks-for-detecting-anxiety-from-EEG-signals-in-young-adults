@@ -12,31 +12,6 @@ def aplicar_log10(df):
     df_log[columnas_caracteristicas] = np.log10(df_log[columnas_caracteristicas] + epsilon)
     return df_log
 
-def normalizar_z_score_relajacion(df):
-    columnas_metadatos = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje']
-    columnas_caracteristicas = [c for c in df.columns if c not in columnas_metadatos and np.issubdtype(df[c].dtype, np.number)]
-    
-    df_norm = df.copy()
-    sujetos_unicos = df_norm['Sujeto'].unique()
-    
-    for sujeto in sujetos_unicos:
-        mascara_sujeto = df_norm['Sujeto'] == sujeto
-        datos_sujeto = df_norm.loc[mascara_sujeto, columnas_caracteristicas]
-        
-        mascara_relajacion = (df_norm['Sujeto'] == sujeto) & (df_norm['Tarea'] == 'Relajacion')
-        datos_relajacion = df_norm.loc[mascara_relajacion, columnas_caracteristicas]
-        
-        if datos_relajacion.empty:
-            continue
-            
-        mu_relajacion = datos_relajacion.mean()
-        sigma_relajacion = datos_relajacion.std()
-        sigma_relajacion = sigma_relajacion.replace(0, 1.0)
-        
-        df_norm.loc[mascara_sujeto, columnas_caracteristicas] = (datos_sujeto - mu_relajacion) / sigma_relajacion
-
-    return df_norm
-
 def calcular_asimetria(df_log):
     columnas_metadatos = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje']
     
@@ -157,36 +132,30 @@ def calcular_bandas_potencia(ruta_dataset):
     df_log.to_parquet(archivo_log_parquet, index=False)
     df_log.to_csv(archivo_log_csv, index=False)
 
-    df_final = normalizar_z_score_relajacion(df_log)
-    archivo_parquet = os.path.join(directorio_salida, 'datos_bandas_normalizados.parquet')
-    archivo_csv = os.path.join(directorio_salida, 'datos_bandas_normalizados.csv')
-    df_final.to_parquet(archivo_parquet, index=False)
-    df_final.to_csv(archivo_csv, index=False)
-    
+    archivo_bandas_log_parquet = os.path.join(directorio_salida, 'datos_bandas_log10.parquet')
+    archivo_bandas_log_csv = os.path.join(directorio_salida, 'datos_bandas_log10.csv')
+    df_log.to_parquet(archivo_bandas_log_parquet, index=False)
+    df_log.to_csv(archivo_bandas_log_csv, index=False)
+
     df_asym = calcular_asimetria(df_log)
-    df_asym_norm = normalizar_z_score_relajacion(df_asym)
-    
-    archivo_asym_parquet = os.path.join(directorio_salida, 'datos_asimetria_normalizados.parquet')
-    archivo_asym_csv = os.path.join(directorio_salida, 'datos_asimetria_normalizados.csv')
-    df_asym_norm.to_parquet(archivo_asym_parquet, index=False)
-    df_asym_norm.to_csv(archivo_asym_csv, index=False)
+    archivo_asym_log_parquet = os.path.join(directorio_salida, 'datos_asimetria_log10.parquet')
+    archivo_asym_log_csv = os.path.join(directorio_salida, 'datos_asimetria_log10.csv')
+    df_asym.to_parquet(archivo_asym_log_parquet, index=False)
+    df_asym.to_csv(archivo_asym_log_csv, index=False)
 
     df_ratios = calcular_ratios(df_log)
-    df_ratios_norm = normalizar_z_score_relajacion(df_ratios)
-    
-    archivo_ratios_parquet = os.path.join(directorio_salida, 'datos_ratios_normalizados.parquet')
-    archivo_ratios_csv = os.path.join(directorio_salida, 'datos_ratios_normalizados.csv')
-    df_ratios_norm.to_parquet(archivo_ratios_parquet, index=False)
-    df_ratios_norm.to_csv(archivo_ratios_csv, index=False)
+    archivo_ratios_log_parquet = os.path.join(directorio_salida, 'datos_ratios_log10.parquet')
+    archivo_ratios_log_csv = os.path.join(directorio_salida, 'datos_ratios_log10.csv')
+    df_ratios.to_parquet(archivo_ratios_log_parquet, index=False)
+    df_ratios.to_csv(archivo_ratios_log_csv, index=False)
     
     columnas_join = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje']
     
-    df_merged = pd.merge(df_final, df_asym_norm, on=columnas_join, how='inner')
+    df_merged = pd.merge(df_log, df_asym, on=columnas_join, how='inner')
+    df_merged = pd.merge(df_merged, df_ratios, on=columnas_join, how='inner')
     
-    df_merged = pd.merge(df_merged, df_ratios_norm, on=columnas_join, how='inner')
-    
-    archivo_merged_parquet = os.path.join(directorio_salida, 'datos_completos_normalizados.parquet')
-    archivo_merged_csv = os.path.join(directorio_salida, 'datos_completos_normalizados.csv')
+    archivo_merged_parquet = os.path.join(directorio_salida, 'datos_completos_log10.parquet')
+    archivo_merged_csv = os.path.join(directorio_salida, 'datos_completos_log10.csv')
     
     df_merged.to_parquet(archivo_merged_parquet, index=False)
     df_merged.to_csv(archivo_merged_csv, index=False)

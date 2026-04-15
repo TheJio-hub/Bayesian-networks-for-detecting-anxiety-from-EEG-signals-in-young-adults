@@ -48,7 +48,7 @@ def entrenar_y_evaluar(X, y, grupos, modelo):
 def principal():
     archivo_ranking = os.path.join('Resultados', 'Análisis global', 'Ranking_Multicriterio_Completo.csv')
     archivo_datos = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
-    dir_salida = os.path.join('Resultados', 'Análisis global', 'Modelos (Usando Rankings)')
+    dir_salida = os.path.join('Resultados', 'Análisis global', 'Modelos generados')
     
     if not os.path.exists(dir_salida):
         os.makedirs(dir_salida)

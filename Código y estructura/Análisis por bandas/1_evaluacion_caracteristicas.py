@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
-from sklearn.feature_selection import mutual_info_classif
+from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from sklearn.tree import DecisionTreeClassifier
 
 def fisher_score_func(X, y):
@@ -39,6 +39,58 @@ def columnas_ratio_por_banda(columnas, banda):
     return seleccionadas
 
 
+def seleccion_mrmr(X, y, n_seleccion):
+    if X.shape[1] == 0 or n_seleccion <= 0:
+        return pd.DataFrame(columns=['Orden_Seleccion', 'Caracteristica', 'Relevancia_Original'])
+
+    n_caracteristicas = X.shape[1]
+    n_seleccion = min(n_seleccion, n_caracteristicas)
+    nombres_caracteristicas = list(X.columns)
+
+    indices_seleccionados = []
+    indices_candidatos = list(range(n_caracteristicas))
+
+    relevancia_inicial = mutual_info_classif(X, y, discrete_features=False, random_state=42)
+    redundancia_acumulada = np.zeros(n_caracteristicas)
+
+    primera_mejor = np.argmax(relevancia_inicial)
+    indices_seleccionados.append(primera_mejor)
+    indices_candidatos.remove(primera_mejor)
+
+    for i in range(1, n_seleccion):
+        idx_ultimo_seleccionado = indices_seleccionados[-1]
+        datos_ultimo_seleccionado = X.iloc[:, idx_ultimo_seleccionado].values.reshape(-1, 1)
+
+        for idx_candidato in indices_candidatos:
+            datos_candidato = X.iloc[:, idx_candidato].values.reshape(-1, 1)
+            mi_redundancia = mutual_info_regression(
+                datos_candidato,
+                datos_ultimo_seleccionado.ravel(),
+                discrete_features=False,
+                random_state=42,
+            )[0]
+            redundancia_acumulada[idx_candidato] += mi_redundancia
+
+        puntajes_mrmr = -np.inf * np.ones(n_caracteristicas)
+
+        for idx_candidato in indices_candidatos:
+            promedio_redundancia = redundancia_acumulada[idx_candidato] / len(indices_seleccionados)
+            puntajes_mrmr[idx_candidato] = relevancia_inicial[idx_candidato] - promedio_redundancia
+
+        idx_mejor_siguiente = np.argmax(puntajes_mrmr)
+        indices_seleccionados.append(idx_mejor_siguiente)
+        indices_candidatos.remove(idx_mejor_siguiente)
+
+    nombres_seleccionados = [nombres_caracteristicas[i] for i in indices_seleccionados]
+    relevancia_seleccionada = [relevancia_inicial[i] for i in indices_seleccionados]
+
+    return pd.DataFrame({
+        'Orden_Seleccion': range(1, n_seleccion + 1),
+        'Caracteristica': nombres_seleccionados,
+        'Relevancia_Original': relevancia_seleccionada,
+    })
+
+
 def guardar_ranking_fisher_mi(X, y, ruta_fisher, ruta_mi):
     if X.shape[1] == 0:
         pd.DataFrame(columns=['Caracteristica', 'Fisher_Score']).to_csv(ruta_fisher, index=False)
@@ -73,6 +125,19 @@ def guardar_ranking_dt(X, y, ruta_dt):
         'Importancia_DT': dt.feature_importances_
     }).sort_values(by='Importancia_DT', ascending=False)
     df_dt.to_csv(ruta_dt, index=False)
+
+
+def guardar_ranking_mrmr(X, y, ruta_mrmr, proporcion=0.25):
+    if X.shape[1] == 0:
+        pd.DataFrame(columns=['Orden_Seleccion', 'Caracteristica', 'Relevancia_Original']).to_csv(ruta_mrmr, index=False)
+        return
+
+    n_seleccion = int(X.shape[1] * proporcion)
+    if n_seleccion < 1:
+        n_seleccion = 1
+
+    df_mrmr = seleccion_mrmr(X, y, n_seleccion)
+    df_mrmr.to_csv(ruta_mrmr, index=False)
 
 def evaluar_caracteristicas_por_banda():
     input_file = os.path.join('Resultados', 'Exploratorio', 'datos_bandas_normalizados.parquet')
@@ -139,6 +204,15 @@ def evaluar_caracteristicas_por_banda():
         except Exception as e:
             print(f"Error DT {banda}: {e}")
 
+        try:
+            guardar_ranking_mrmr(
+                X_banda,
+                y,
+                os.path.join(output_dir, banda, f'mRMR_{banda}.csv')
+            )
+        except Exception as e:
+            print(f"Error mRMR {banda}: {e}")
+
         # Asimetria por banda
         dir_asim = os.path.join(output_dir, banda, 'Asimetria')
         os.makedirs(dir_asim, exist_ok=True)
@@ -164,6 +238,16 @@ def evaluar_caracteristicas_por_banda():
         except Exception as e:
             print(f"Error DT Asimetria {banda}: {e}")
 
+        try:
+            guardar_ranking_mrmr(
+                X_asim,
+                y,
+                os.path.join(dir_asim, f'mRMR_Asimetria_{banda}.csv'),
+                proporcion=1.0,
+            )
+        except Exception as e:
+            print(f"Error mRMR Asimetria {banda}: {e}")
+
         # Ratios por banda
         dir_ratios = os.path.join(output_dir, banda, 'Ratios')
         os.makedirs(dir_ratios, exist_ok=True)
@@ -188,6 +272,16 @@ def evaluar_caracteristicas_por_banda():
             )
         except Exception as e:
             print(f"Error DT Ratios {banda}: {e}")
+
+        try:
+            guardar_ranking_mrmr(
+                X_ratio,
+                y,
+                os.path.join(dir_ratios, f'mRMR_Ratios_{banda}.csv'),
+                proporcion=1.0,
+            )
+        except Exception as e:
+            print(f"Error mRMR Ratios {banda}: {e}")
 
 if __name__ == "__main__":
     evaluar_caracteristicas_por_banda()
