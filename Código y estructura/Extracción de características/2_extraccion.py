@@ -2,6 +2,14 @@ import pandas as pd
 import numpy as np
 from scipy.signal import welch
 import os
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 
 def aplicar_log10(df):
     columnas_metadatos = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje']
@@ -34,7 +42,7 @@ def calcular_asimetria(df_log):
     
     cols = df_log.columns
     
-    for (izq, der) in pares:
+    for (izq, der) in tqdm(pares, desc='Asimetria por pares', unit='par', leave=False):
         for banda in bandas:
             col_izq = f"{izq}_{banda}"
             col_der = f"{der}_{banda}"
@@ -54,7 +62,7 @@ def calcular_ratios(df_log):
     
     features_ratios = {}
     
-    for canal in canales:
+    for canal in tqdm(canales, desc='Ratios por canal', unit='canal', leave=False):
         theta = f"{canal}_Theta"
         beta = f"{canal}_Beta"
         alpha = f"{canal}_Alpha"
@@ -101,7 +109,7 @@ def calcular_bandas_potencia(ruta_dataset):
     
     nuevas_columnas = {}
     
-    for canal in lista_canales:
+    for canal in tqdm(lista_canales, desc='Bandas por canal', unit='canal'):
         columnas_tiempo = [f"{canal}_{i+1}" for i in range(muestras_por_epoca)]
         cols_existentes = [c for c in columnas_tiempo if c in df.columns]
         

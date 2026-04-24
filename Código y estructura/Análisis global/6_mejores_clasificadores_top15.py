@@ -1,6 +1,14 @@
 import pandas as pd
 import os
 import glob
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 
 def principal():
     dir_base = "Resultados/Análisis global/Modelos generados"
@@ -27,7 +35,7 @@ def principal():
 
     print("Buscando los mejores modelos para Top 15 características (Apilado)...")
 
-    for codigo_clf in clasificadores:
+    for codigo_clf in tqdm(clasificadores, desc='Consolidando Top 15', unit='clasificador'):
         mejor_exactitud = -1.0
         mejores_filas_para_clasificador = []
         mejor_nombre_ranking = None

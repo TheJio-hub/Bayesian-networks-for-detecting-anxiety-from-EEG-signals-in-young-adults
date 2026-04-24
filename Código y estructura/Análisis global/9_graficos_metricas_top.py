@@ -3,6 +3,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 
 
 def leer_metrica_csv(ruta_csv):
@@ -26,7 +34,7 @@ def construir_dataframe_base():
     metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'Random_Forest']
 
     filas = []
-    for nombre_top, sufijo in configuracion:
+    for nombre_top, sufijo in tqdm(configuracion, desc='Cargando métricas', unit='top'):
         for clasificador in clasificadores:
             for metodo in metodos:
                 archivo = f'Resultados_{clasificador}_Ranking_{metodo}_top{sufijo}.csv'
@@ -143,7 +151,7 @@ def generar_graficos():
 
     # Figura 1: Exactitud en 2x2 (métodos)
     fig1, axes1 = plt.subplots(2, 2, figsize=(15, 10), sharex=True, sharey=True)
-    for i, metodo in enumerate(orden_metodos):
+    for i, metodo in enumerate(tqdm(orden_metodos, desc='Graficando exactitud', unit='metodo')):
         fila, col = divmod(i, 2)
         dibujar_panel(axes1[fila, col], metodo, 'Exactitud', ylim=(0.6, 0.9))
     handles, labels = axes1[0, 0].get_legend_handles_labels()
@@ -156,7 +164,7 @@ def generar_graficos():
 
     # Figura 2: Sensibilidad y Especificidad en 4x2
     fig2, axes2 = plt.subplots(4, 2, figsize=(14, 18), sharex=True, sharey=True)
-    for fila, metodo in enumerate(orden_metodos):
+    for fila, metodo in enumerate(tqdm(orden_metodos, desc='Graficando sensibilidad/especificidad', unit='metodo')):
         dibujar_panel(axes2[fila, 0], metodo, 'Sensibilidad', ylim=(0.4, 1.0))
         axes2[fila, 0].set_title(f'{nombres_metodo[metodo]} - Sensibilidad', fontsize=13, fontweight='bold')
 

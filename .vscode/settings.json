@@ -1,0 +1,20 @@
+{
+    "ltex.language": "es-ES",
+    "ltex.enabled": [
+        "latex",
+        "tex",
+        "bibtex",
+        "markdown",
+        "plaintext"
+    ],
+    "cSpell.enabled": true,
+    "cSpell.language": "es,en",
+    "cSpell.enabledLanguageIds": [
+        "latex",
+        "tex",
+        "bibtex",
+        "markdown",
+        "plaintext"
+    ],
+    "editor.wordWrap": "on"
+}

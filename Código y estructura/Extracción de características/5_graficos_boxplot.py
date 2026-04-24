@@ -2,6 +2,14 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 
 def generar_graficos_boxplot():
     input_file = os.path.join('Resultados', 'Exploratorio', 'datos_bandas_normalizados.parquet')
@@ -36,7 +44,7 @@ def generar_graficos_boxplot():
     
     sns.set_theme(style="whitegrid")
     
-    for i, col in enumerate(canales_feature):
+    for i, col in enumerate(tqdm(canales_feature, desc='Graficas boxplot', unit='grafica')):
             
         plt.figure(figsize=(8, 6))
         

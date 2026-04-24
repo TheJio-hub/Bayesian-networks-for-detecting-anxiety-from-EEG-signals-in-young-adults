@@ -2,6 +2,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.neighbors import KNeighborsClassifier
@@ -171,8 +179,9 @@ def entrenar_y_evaluar(X: pd.DataFrame, y: np.ndarray, grupos: np.ndarray, model
     logo = LeaveOneGroupOut()
     y_real_total = []
     y_predicha_total = []
+    total_folds = logo.get_n_splits(X, y, grupos)
 
-    for indice_entrenamiento, indice_prueba in logo.split(X, y, grupos):
+    for indice_entrenamiento, indice_prueba in tqdm(logo.split(X, y, grupos), total=total_folds, desc='LOGO por bloque', unit='fold', leave=False):
         X_entrenamiento, X_prueba = X.iloc[indice_entrenamiento], X.iloc[indice_prueba]
         y_entrenamiento, y_prueba = y[indice_entrenamiento], y[indice_prueba]
 
@@ -256,11 +265,11 @@ def evaluar_bloque(
     if not columnas_validas:
         return
 
-    for n_top, nombre_top in TOPS:
+    for n_top, nombre_top in tqdm(TOPS, desc=f'Evaluando {bloque}', unit='top', leave=False):
         dir_top = raiz / "Resultados" / "Análisis por bandas" / "Modelos por banda" / nombre_top / bloque
         dir_top.mkdir(parents=True, exist_ok=True)
 
-        for metodo in METODOS:
+        for metodo in tqdm(METODOS, desc=f'Metodos {bloque} top{n_top}', unit='metodo', leave=False):
             df_ranking = cargar_ranking_bloque(raiz, bloque, metodo)
             if df_ranking.empty:
                 continue
@@ -275,7 +284,7 @@ def evaluar_bloque(
             if X.empty:
                 continue
 
-            for nombre_clasificador, modelo in CLASIFICADORES.items():
+            for nombre_clasificador, modelo in tqdm(CLASIFICADORES.items(), desc=f'Clasificadores {bloque}', unit='clf', leave=False):
                 resultados = entrenar_y_evaluar(X, y, grupos, modelo)
                 archivo_salida = dir_top / f"Resultados_{nombre_clasificador}_Ranking_{metodo}_top{n_top}.csv"
                 resultados.to_csv(archivo_salida)
@@ -300,7 +309,7 @@ def main() -> None:
     if df_base.empty and df_asim.empty and df_ratio.empty:
         raise FileNotFoundError("No se encontraron los conjuntos de datos necesarios en Resultados/Exploratorio.")
 
-    for bloque in BLOQUES:
+    for bloque in tqdm(BLOQUES, desc='Bloques por banda', unit='bloque'):
         evaluar_bloque(
             raiz,
             bloque,

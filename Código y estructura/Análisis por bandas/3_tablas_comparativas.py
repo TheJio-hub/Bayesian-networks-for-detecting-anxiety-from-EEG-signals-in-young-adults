@@ -1,6 +1,14 @@
 from pathlib import Path
 
 import pandas as pd
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 
 
 BLOQUES = ["Alpha", "Beta", "Delta", "Asimetria", "Ratios"]
@@ -35,7 +43,7 @@ def construir_tabla_bloque(raiz: Path, bloque: str) -> pd.DataFrame:
     base = raiz / "Resultados" / "Análisis por bandas" / "Modelos por banda"
 
     filas = []
-    for metodo in METODOS:
+    for metodo in tqdm(METODOS, desc=f'Tabla {bloque}', unit='metodo', leave=False):
         for top_num, top_nombre in TOPS:
             fila = {"Metodo": metodo, "Top": top_nombre}
             for clasificador in CLASIFICADORES:
@@ -66,7 +74,7 @@ def main() -> None:
     salida = raiz / "Resultados" / "Análisis por bandas" / "Tablas comparativas"
     salida.mkdir(parents=True, exist_ok=True)
 
-    for bloque in BLOQUES:
+    for bloque in tqdm(BLOQUES, desc='Tablas comparativas', unit='bloque'):
         df = construir_tabla_bloque(raiz, bloque)
         ruta_csv = salida / f"Tabla_Comparativa_{bloque}.csv"
         guardar_tabla(df, None, ruta_csv)

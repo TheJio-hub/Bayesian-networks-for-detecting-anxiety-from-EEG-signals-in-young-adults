@@ -3,6 +3,14 @@ import numpy as np
 import os
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from sklearn.tree import DecisionTreeClassifier
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 
 def fisher_score_func(X, y):
     classes = np.unique(y)
@@ -57,7 +65,7 @@ def seleccion_mrmr(X, y, n_seleccion):
     indices_seleccionados.append(primera_mejor)
     indices_candidatos.remove(primera_mejor)
 
-    for i in range(1, n_seleccion):
+    for i in tqdm(range(1, n_seleccion), desc='mRMR por bloque', unit='iter', leave=False):
         idx_ultimo_seleccionado = indices_seleccionados[-1]
         datos_ultimo_seleccionado = X.iloc[:, idx_ultimo_seleccionado].values.reshape(-1, 1)
 
@@ -175,7 +183,7 @@ def evaluar_caracteristicas_por_banda():
     cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
     all_features = [c for c in df_filtered.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df_filtered[c])]
 
-    for banda in bandas:
+    for banda in tqdm(bandas, desc='Bandas', unit='banda'):
         
         cols_banda = [c for c in all_features if c.endswith(f"_{banda}")]
         

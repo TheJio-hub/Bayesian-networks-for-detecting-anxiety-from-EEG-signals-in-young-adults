@@ -1,6 +1,14 @@
 import pandas as pd
 import numpy as np
 import os
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score, confusion_matrix
@@ -24,8 +32,9 @@ def entrenar_y_evaluar(X, y, grupos, modelo):
     validacion = LeaveOneGroupOut()
     y_real_total = []
     y_predicha_total = []
+    total_folds = validacion.get_n_splits(X, y, grupos)
     
-    for indice_entrenamiento, indice_prueba in validacion.split(X, y, grupos):
+    for indice_entrenamiento, indice_prueba in tqdm(validacion.split(X, y, grupos), total=total_folds, desc='LOGO KNN', unit='fold', leave=False):
         X_entrenamiento, X_prueba = X.iloc[indice_entrenamiento], X.iloc[indice_prueba]
         y_entrenamiento, y_prueba = y[indice_entrenamiento], y[indice_prueba]
         
@@ -46,7 +55,9 @@ def entrenar_y_evaluar(X, y, grupos, modelo):
     ], index=['Clase 0', 'Clase 1'])
 
 def principal():
-    archivo_ranking = os.path.join('Resultados', 'Análisis global', 'Ranking_Multicriterio_Completo.csv')
+    archivo_ranking = os.path.join('Resultados', 'Análisis global', 'Selección de características', 'Ranking_Multicriterio_Completo.csv')
+    if not os.path.exists(archivo_ranking):
+        archivo_ranking = os.path.join('Resultados', 'Análisis global', 'Ranking_Multicriterio_Completo.csv')
     archivo_datos = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
     dir_salida = os.path.join('Resultados', 'Análisis global', 'Modelos generados')
     
@@ -69,11 +80,11 @@ def principal():
     fuentes_ranking = ['Fisher', 'Mutual_Info', 'mRMR', 'Random_Forest']
     top_configuraciones = [(15, 'Top 15'), (20, 'Top 20'), (30, 'Top 30')]
 
-    for n_caracteristicas, nombre_carpeta in top_configuraciones:
+    for n_caracteristicas, nombre_carpeta in tqdm(top_configuraciones, desc='Top configuraciones KNN', unit='top'):
         directorio_top = os.path.join(dir_salida, nombre_carpeta)
         os.makedirs(directorio_top, exist_ok=True)
 
-        for criterio in fuentes_ranking:
+        for criterio in tqdm(fuentes_ranking, desc=f'Criterios top{n_caracteristicas}', unit='criterio', leave=False):
             mejores_caracteristicas = obtener_top_n_por_criterio(df_ranking, criterio, n=n_caracteristicas)
             
             X_subconjunto = df_datos[mejores_caracteristicas]

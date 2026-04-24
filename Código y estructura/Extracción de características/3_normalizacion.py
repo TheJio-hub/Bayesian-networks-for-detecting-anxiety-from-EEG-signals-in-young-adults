@@ -2,6 +2,14 @@ import os
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 
 
 def normalizar_z_score_relajacion(df: pd.DataFrame) -> pd.DataFrame:
@@ -14,7 +22,7 @@ def normalizar_z_score_relajacion(df: pd.DataFrame) -> pd.DataFrame:
     df_norm = df.copy()
     sujetos_unicos = df_norm['Sujeto'].unique()
 
-    for sujeto in sujetos_unicos:
+    for sujeto in tqdm(sujetos_unicos, desc='Normalizando por sujeto', unit='sujeto'):
         mascara_sujeto = df_norm['Sujeto'] == sujeto
         datos_sujeto = df_norm.loc[mascara_sujeto, columnas_caracteristicas]
 

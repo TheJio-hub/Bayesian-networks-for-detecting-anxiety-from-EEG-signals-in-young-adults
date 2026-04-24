@@ -2,6 +2,14 @@ import os
 import pandas as pd
 import numpy as np
 import scipy.io
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 
 def cargar_escalas(ruta_escalas):
     """
@@ -99,7 +107,7 @@ def generar_conjunto_datos():
         
     archivos = sorted([f for f in os.listdir(ruta_filtrados) if f.endswith('.mat')])
     
-    for idx, nombre_archivo in enumerate(archivos):
+    for idx, nombre_archivo in enumerate(tqdm(archivos, desc='Procesando archivos EEG', unit='archivo')):
             
         try:
             # Parse filename

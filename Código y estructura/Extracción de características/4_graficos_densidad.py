@@ -3,6 +3,14 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 import numpy as np
+from tqdm.auto import tqdm as _tqdm
+
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
 
 def graficar_densidades(input_file, output_dir, tipo_analisis):
     if not os.path.exists(output_dir):
@@ -35,7 +43,7 @@ def graficar_densidades(input_file, output_dir, tipo_analisis):
                 
     sns.set_theme(style="whitegrid")
         
-    for i, col in enumerate(canales_feature):
+    for i, col in enumerate(tqdm(canales_feature, desc=f'Graficas densidad {tipo_analisis}', unit='grafica')):
         plt.figure(figsize=(10, 6))
         
         try:
