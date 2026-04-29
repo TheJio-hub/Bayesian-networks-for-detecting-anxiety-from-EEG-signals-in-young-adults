@@ -15,7 +15,19 @@ from sklearn.metrics import precision_recall_fscore_support, accuracy_score, con
 
 def obtener_top_n_por_criterio(df_ranking, criterio, n=30):
     if criterio == 'mRMR':
-        sub = df_ranking.dropna(subset=['mRMR_Rank']).sort_values('mRMR_Rank', ascending=True)
+        if n >= 40 and 'mRMR_40_Rank' in df_ranking.columns:
+            mrmr_col = 'mRMR_40_Rank'
+        elif n >= 30 and 'mRMR_30_Rank' in df_ranking.columns:
+            mrmr_col = 'mRMR_30_Rank'
+        elif n >= 20 and 'mRMR_20_Rank' in df_ranking.columns:
+            mrmr_col = 'mRMR_20_Rank'
+        elif n >= 15 and 'mRMR_20_Rank' in df_ranking.columns:
+            mrmr_col = 'mRMR_20_Rank'
+        elif 'mRMR_10_Rank' in df_ranking.columns:
+            mrmr_col = 'mRMR_10_Rank'
+        else:
+            mrmr_col = 'mRMR_Rank'
+        sub = df_ranking.dropna(subset=[mrmr_col]).sort_values(mrmr_col, ascending=True)
         return sub['Caracteristica'].tolist()[:n]
     elif criterio == 'Fisher':
         sub = df_ranking.sort_values('Fisher_Score', ascending=False)
@@ -23,8 +35,8 @@ def obtener_top_n_por_criterio(df_ranking, criterio, n=30):
     elif criterio == 'Mutual_Info':
         sub = df_ranking.sort_values('Mutual_Info', ascending=False)
         return sub['Caracteristica'].tolist()[:n]
-    elif criterio == 'Random_Forest':
-        sub = df_ranking.sort_values('Importancia_RF', ascending=False)
+    elif criterio == 'DT':
+        sub = df_ranking.sort_values('Importancia_DT', ascending=False)
         return sub['Caracteristica'].tolist()[:n]
     return []
 
@@ -32,6 +44,8 @@ def entrenar_y_evaluar(X, y, grupos, modelo):
     validacion = LeaveOneGroupOut()
     y_real_total = []
     y_predicha_total = []
+    y_train_total = []
+    y_train_pred_total = []
     total_folds = validacion.get_n_splits(X, y, grupos)
     
     for indice_entrenamiento, indice_prueba in tqdm(validacion.split(X, y, grupos), total=total_folds, desc='LOGO SVM', unit='fold', leave=False):
@@ -40,19 +54,46 @@ def entrenar_y_evaluar(X, y, grupos, modelo):
         
         modelo.fit(X_entrenamiento, y_entrenamiento)
         prediccion = modelo.predict(X_prueba)
-        
+        train_pred = modelo.predict(X_entrenamiento)
+
         y_real_total.extend(y_prueba)
         y_predicha_total.extend(prediccion)
+        y_train_total.extend(y_entrenamiento)
+        y_train_pred_total.extend(train_pred)
         
+    # Métricas de validación (LOGO)
     precision, sensibilidad, f1, _ = precision_recall_fscore_support(y_real_total, y_predicha_total, labels=[0, 1], zero_division=0)
     exactitud = accuracy_score(y_real_total, y_predicha_total)
-    tn, fp, fn, tp = confusion_matrix(y_real_total, y_predicha_total, labels=[0, 1]).ravel()
-    especificidad = tn / (tn + fp) if (tn + fp) else 0.0
-    
+    cm = confusion_matrix(y_real_total, y_predicha_total, labels=[0, 1])
+    total = cm.sum()
+    especificidades = []
+    for clase_idx in range(cm.shape[0]):
+        tp = cm[clase_idx, clase_idx]
+        fp = cm[:, clase_idx].sum() - tp
+        fn = cm[clase_idx, :].sum() - tp
+        tn = total - tp - fp - fn
+        especificidades.append(tn / (tn + fp) if (tn + fp) else 0.0)
+
+    # Métricas de entrenamiento (acumuladas sobre folds)
+    precision_tr, sensibilidad_tr, f1_tr, _ = precision_recall_fscore_support(y_train_total, y_train_pred_total, labels=[0, 1], zero_division=0)
+    exactitud_tr = accuracy_score(y_train_total, y_train_pred_total)
+    cm_tr = confusion_matrix(y_train_total, y_train_pred_total, labels=[0, 1])
+    total_tr = cm_tr.sum()
+    especificidades_tr = []
+    for clase_idx in range(cm_tr.shape[0]):
+        tp = cm_tr[clase_idx, clase_idx]
+        fp = cm_tr[:, clase_idx].sum() - tp
+        fn = cm_tr[clase_idx, :].sum() - tp
+        tn = total_tr - tp - fp - fn
+        especificidades_tr.append(tn / (tn + fp) if (tn + fp) else 0.0)
+
+    # Devuelve filas separadas para validación y entrenamiento por clase
     return pd.DataFrame([
-        {'Precision': precision[0], 'Sensibilidad': sensibilidad[0], 'Especificidad': especificidad, 'Puntaje_F1': f1[0], 'Exactitud': exactitud},
-        {'Precision': precision[1], 'Sensibilidad': sensibilidad[1], 'Especificidad': especificidad, 'Puntaje_F1': f1[1], 'Exactitud': exactitud}
-    ], index=['Clase 0', 'Clase 1'])
+        {'Precision': precision[0], 'Sensibilidad': sensibilidad[0], 'Especificidad': especificidades[0], 'Puntaje_F1': f1[0], 'Exactitud': exactitud},
+        {'Precision': precision[1], 'Sensibilidad': sensibilidad[1], 'Especificidad': especificidades[1], 'Puntaje_F1': f1[1], 'Exactitud': exactitud},
+        {'Precision': precision_tr[0], 'Sensibilidad': sensibilidad_tr[0], 'Especificidad': especificidades_tr[0], 'Puntaje_F1': f1_tr[0], 'Exactitud': exactitud_tr},
+        {'Precision': precision_tr[1], 'Sensibilidad': sensibilidad_tr[1], 'Especificidad': especificidades_tr[1], 'Puntaje_F1': f1_tr[1], 'Exactitud': exactitud_tr}
+    ], index=['Clase 0 (Validación)', 'Clase 1 (Validación)', 'Clase 0 (Entrenamiento)', 'Clase 1 (Entrenamiento)'])
 
 def principal():
     archivo_ranking = os.path.join('Resultados', 'Análisis global', 'Selección de características', 'Ranking_Multicriterio_Completo.csv')
@@ -77,14 +118,20 @@ def principal():
     modelo = SVC(kernel='rbf', class_weight='balanced', random_state=42)
     nombre_modelo = 'SVM'
     
-    fuentes_ranking = ['Fisher', 'Mutual_Info', 'mRMR', 'Random_Forest']
-    top_configuraciones = [(15, 'Top 15'), (20, 'Top 20'), (30, 'Top 30')]
+    top_5 = [40, 30, 20, 15, 10]
+    configuraciones_por_criterio = {
+        'Fisher': top_5,
+        'Mutual_Info': top_5,
+        'mRMR': top_5,
+        'DT': [20, 15, 10],
+    }
 
-    for n_caracteristicas, nombre_carpeta in tqdm(top_configuraciones, desc='Top configuraciones SVM', unit='top'):
-        directorio_top = os.path.join(dir_salida, nombre_carpeta)
-        os.makedirs(directorio_top, exist_ok=True)
+    for criterio in tqdm(configuraciones_por_criterio.keys(), desc='Criterios SVM', unit='criterio'):
+        for n_caracteristicas in tqdm(configuraciones_por_criterio[criterio], desc=f'Top para {criterio}', unit='top', leave=False):
+            nombre_carpeta = f'Top {n_caracteristicas}'
+            directorio_top = os.path.join(dir_salida, nombre_carpeta)
+            os.makedirs(directorio_top, exist_ok=True)
 
-        for criterio in tqdm(fuentes_ranking, desc=f'Criterios top{n_caracteristicas}', unit='criterio', leave=False):
             mejores_caracteristicas = obtener_top_n_por_criterio(df_ranking, criterio, n=n_caracteristicas)
             
             X_subconjunto = df_datos[mejores_caracteristicas]

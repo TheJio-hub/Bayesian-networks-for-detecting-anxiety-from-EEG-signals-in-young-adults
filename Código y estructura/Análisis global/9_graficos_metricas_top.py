@@ -31,7 +31,7 @@ def construir_dataframe_base():
         ('Top 30', 30),
     ]
     clasificadores = ['DT', 'RF', 'KNN', 'SVM']
-    metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'Random_Forest']
+    metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'mRMR_30', 'mRMR_20', 'Random_Forest']
 
     filas = []
     for nombre_top, sufijo in tqdm(configuracion, desc='Cargando métricas', unit='top'):
@@ -64,12 +64,14 @@ def generar_graficos():
     os.makedirs(base_salida, exist_ok=True)
 
     orden_top = ['Top 30', 'Top 20', 'Top 15']
-    orden_metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'Random_Forest']
+    orden_metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'mRMR_30', 'mRMR_20', 'Random_Forest']
     nombres_metodo = {
         'Fisher': 'Fisher',
         'Mutual_Info': 'MI',
-        'mRMR': 'mRMR',
-        'Random_Forest': 'DT'
+        'mRMR': 'mRMR(40)',
+        'mRMR_30': 'mRMR(30)',
+        'mRMR_20': 'mRMR(20)',
+        'Random_Forest': 'RF'
     }
     nombres_clasificador = {
         'DT': 'DT',
@@ -149,21 +151,25 @@ def generar_graficos():
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
 
-    # Figura 1: Exactitud en 2x2 (métodos)
-    fig1, axes1 = plt.subplots(2, 2, figsize=(15, 10), sharex=True, sharey=True)
+    # Figura 1: Exactitud en 3x2 (métodos)
+    n_metodos = len(orden_metodos)
+    n_rows = 3
+    n_cols = 2
+    fig1, axes1 = plt.subplots(n_rows, n_cols, figsize=(14, 14), sharex=True, sharey=True)
     for i, metodo in enumerate(tqdm(orden_metodos, desc='Graficando exactitud', unit='metodo')):
-        fila, col = divmod(i, 2)
+        fila, col = divmod(i, n_cols)
         dibujar_panel(axes1[fila, col], metodo, 'Exactitud', ylim=(0.6, 0.9))
     handles, labels = axes1[0, 0].get_legend_handles_labels()
     fig1.legend(handles, labels, loc='lower center', ncol=4, frameon=True, fontsize=13)
     plt.tight_layout(rect=[0, 0.06, 1, 0.95])
-    ruta_exactitud = os.path.join(base_salida, 'Comparativa_Exactitud_2x2.png')
+    ruta_exactitud = os.path.join(base_salida, 'Comparativa_Exactitud_3x2.png')
     plt.savefig(ruta_exactitud, dpi=300, bbox_inches='tight')
     plt.close(fig1)
     print(f'Guardado: {ruta_exactitud}')
 
-    # Figura 2: Sensibilidad y Especificidad en 4x2
-    fig2, axes2 = plt.subplots(4, 2, figsize=(14, 18), sharex=True, sharey=True)
+    # Figura 2: Sensibilidad y Especificidad en Nx2 (uno por método)
+    n_rows2 = len(orden_metodos)
+    fig2, axes2 = plt.subplots(n_rows2, 2, figsize=(14, 4 * n_rows2), sharex=True, sharey=True)
     for fila, metodo in enumerate(tqdm(orden_metodos, desc='Graficando sensibilidad/especificidad', unit='metodo')):
         dibujar_panel(axes2[fila, 0], metodo, 'Sensibilidad', ylim=(0.4, 1.0))
         axes2[fila, 0].set_title(f'{nombres_metodo[metodo]} - Sensibilidad', fontsize=13, fontweight='bold')

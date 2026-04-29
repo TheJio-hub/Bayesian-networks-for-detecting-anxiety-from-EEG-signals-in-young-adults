@@ -144,9 +144,6 @@ def main():
     mi = calcular_mutual_information(X, y)
     mi_df = pd.DataFrame({'Caracteristica': mi.index, 'Mutual_Info': mi.values})
     progreso.update(1)
-    
-    mrmr_df = construir_ranking_mrmr(X, y, 'mRMR_Rank')
-    progreso.update(1)
 
     top_n_mi_para_mrmr = 40
     columnas_mi_top40 = seleccionar_top_mi(X, y, top_n_mi_para_mrmr)
@@ -165,14 +162,20 @@ def main():
     X_mrmr_20 = X[columnas_mi_top20]
     mrmr_20_df = construir_ranking_mrmr(X_mrmr_20, y, 'mRMR_20_Rank')
     progreso.update(1)
+
+    top_n_mi_para_mrmr_10 = 10
+    columnas_mi_top10 = seleccionar_top_mi(X, y, top_n_mi_para_mrmr_10)
+    X_mrmr_10 = X[columnas_mi_top10]
+    mrmr_10_df = construir_ranking_mrmr(X_mrmr_10, y, 'mRMR_10_Rank')
+    progreso.update(1)
     
     imp_rf, imp_dt = analizar_modelos_y_ramas(X, y, grupos, directorio_salida)
     
     maestra = fisher_df.merge(mi_df, on='Caracteristica', how='outer')
-    maestra = maestra.merge(mrmr_df, on='Caracteristica', how='outer')
     maestra = maestra.merge(mrmr_40_df, on='Caracteristica', how='outer')
     maestra = maestra.merge(mrmr_30_df, on='Caracteristica', how='outer')
     maestra = maestra.merge(mrmr_20_df, on='Caracteristica', how='outer')
+    maestra = maestra.merge(mrmr_10_df, on='Caracteristica', how='outer')
     maestra = maestra.merge(imp_rf, on='Caracteristica', how='outer')
     maestra = maestra.merge(imp_dt, on='Caracteristica', how='outer')
     
