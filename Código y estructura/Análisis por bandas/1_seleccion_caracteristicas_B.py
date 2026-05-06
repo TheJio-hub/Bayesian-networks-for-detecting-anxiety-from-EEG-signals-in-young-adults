@@ -135,12 +135,15 @@ def guardar_ranking_dt(X, y, ruta_dt):
     df_dt.to_csv(ruta_dt, index=False)
 
 
-def guardar_ranking_mrmr(X, y, ruta_mrmr, proporcion=0.25):
+def guardar_ranking_mrmr(X, y, ruta_mrmr, proporcion=0.25, banda=None):
     if X.shape[1] == 0:
         pd.DataFrame(columns=['Orden_Seleccion', 'Caracteristica', 'Relevancia_Original']).to_csv(ruta_mrmr, index=False)
         return
 
-    n_seleccion = int(X.shape[1] * proporcion)
+    if banda is not None:
+        n_seleccion = X.shape[1]
+    else:
+        n_seleccion = int(X.shape[1] * proporcion)
     if n_seleccion < 1:
         n_seleccion = 1
 
@@ -178,7 +181,7 @@ def evaluar_caracteristicas_por_banda():
     if not df_ratio.empty and 'Puntaje' in df_ratio.columns:
         df_ratio = df_ratio[(df_ratio['Puntaje'] == 0) | (df_ratio['Puntaje'] >= 5)].copy()
     
-    bandas = ['Delta', 'Theta', 'Alpha', 'Beta', 'Gamma']
+    bandas = ['Delta', 'Alpha', 'Beta']
     
     cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
     all_features = [c for c in df_filtered.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df_filtered[c])]
@@ -216,7 +219,8 @@ def evaluar_caracteristicas_por_banda():
             guardar_ranking_mrmr(
                 X_banda,
                 y,
-                os.path.join(output_dir, banda, f'mRMR_{banda}.csv')
+                os.path.join(output_dir, banda, f'mRMR_{banda}.csv'),
+                banda=banda
             )
         except Exception as e:
             print(f"Error mRMR {banda}: {e}")

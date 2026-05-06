@@ -10,7 +10,7 @@ def tqdm(*args, **kwargs):
     return _tqdm(*args, **kwargs)
 
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.model_selection import LeaveOneGroupOut, KFold
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score, confusion_matrix
 
 def obtener_top_n_por_criterio(df_ranking, criterio, n=30):
@@ -54,12 +54,19 @@ def entrenar_y_evaluar(X, y, grupos, modelo):
         
         modelo.fit(X_entrenamiento, y_entrenamiento)
         prediccion = modelo.predict(X_prueba)
-        train_pred = modelo.predict(X_entrenamiento)
 
         y_real_total.extend(y_prueba)
         y_predicha_total.extend(prediccion)
-        y_train_total.extend(y_entrenamiento)
-        y_train_pred_total.extend(train_pred)
+        
+        # Métricas de entrenamiento: usar 5-fold CV interno para obtener predicciones no vistas
+        kfold = KFold(n_splits=5, shuffle=True, random_state=42)
+        for idx_train_cv, idx_val_cv in kfold.split(X_entrenamiento):
+            X_cv_train, X_cv_val = X_entrenamiento.iloc[idx_train_cv], X_entrenamiento.iloc[idx_val_cv]
+            y_cv_train, y_cv_val = y_entrenamiento[idx_train_cv], y_entrenamiento[idx_val_cv]
+            modelo.fit(X_cv_train, y_cv_train)
+            train_pred = modelo.predict(X_cv_val)
+            y_train_total.extend(y_cv_val)
+            y_train_pred_total.extend(train_pred)
         
     # Métricas de validación (LOGO)
     precision, sensibilidad, f1, _ = precision_recall_fscore_support(y_real_total, y_predicha_total, labels=[0, 1], zero_division=0)

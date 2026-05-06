@@ -14,7 +14,7 @@ def tqdm(*args, **kwargs):
 BLOQUES = ["Alpha", "Beta", "Delta", "Asimetria", "Ratios"]
 METODOS = ["Fisher", "Mutual_Info", "mRMR", "DT"]
 TOPS = [(32, "Top 32"), (8, "Top 8")]
-CLASIFICADORES = ["DT", "KNN", "SVM"]
+CLASIFICADORES = ["DT", "KNN", "SVM", "XGB"]
 METRICAS = ["Exactitud", "Sensibilidad", "Especificidad"]
 
 
