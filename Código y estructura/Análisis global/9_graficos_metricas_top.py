@@ -59,13 +59,14 @@ def construir_dataframe_base():
     clasificadores = ['DT', 'RF', 'KNN', 'SVM', 'XGB']
     # Usamos solo cuatro métodos: Fisher, Mutual_Info, mRMR y DT (Importancia del árbol)
     metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'DT']
-    tops_permitidos_dt = {10, 15, 20}
+    tops_permitidos_metodo_dt = {10, 15, 20}  # Método DT solo en estos tops
 
     filas = []
     for nombre_top, sufijo in tqdm(configuracion, desc='Cargando métricas', unit='top'):
         for clasificador in clasificadores:
             for metodo in metodos:
-                if clasificador == 'DT' and sufijo not in tops_permitidos_dt:
+                # DT como MÉTODO solo tiene Top 10, 15, 20
+                if metodo == 'DT' and sufijo not in tops_permitidos_metodo_dt:
                     continue
 
                 archivo = f'Resultados_{clasificador}_Ranking_{metodo}_top{sufijo}.csv'
@@ -110,11 +111,15 @@ def generar_graficos():
         print('No se encontraron CSV de métricas para graficar.')
         return
 
+    # Para visualización, mostrar solo Top 15, Top 20 y Top 30.
+    # Los datos completos se conservan en el DataFrame original para las tablas.
+    df_grafico = df[df['Top_Orden'].isin([15, 20, 30])].copy()
+
     base_salida = os.path.join('Resultados', 'Análisis global', 'Modelos generados', 'Gráficas comparativas')
     os.makedirs(base_salida, exist_ok=True)
 
     # Mostrar ticks de menor a mayor para claridad en los subgráficos
-    orden_top = ['Top 10', 'Top 15', 'Top 20', 'Top 30', 'Top 40']
+    orden_top = ['Top 15', 'Top 20', 'Top 30']
     orden_metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'DT']
     nombres_metodo = {
         'Fisher': 'Fisher',
@@ -157,11 +162,39 @@ def generar_graficos():
     })
     palette = ['#1f2937', '#374151', '#6b7280', '#0f766e', '#b45309']
 
-    def dibujar_panel(ax, metodo, metrica, conjunto, ylim=(0.45, 1.0)):
-        df_metodo = df[(df['Metodo'] == metodo) & (df['Conjunto'] == conjunto)].copy()
+    def calcular_ylim_dinamico(df_filtrado, metrica):
+        """Calcula límites Y dinámicos basados en los datos, muy ajustados."""
+        valores = df_filtrado[metrica].dropna()
+        if valores.empty:
+            return (0.5, 1.0)
+        
+        y_min = valores.min()
+        y_max = valores.max()
+        rango = y_max - y_min
+        
+        # Margen muy pequeño: 5% del rango o 0.015, lo que sea mayor
+        margen = max(rango * 0.05, 0.015)
+        
+        # Redondear a múltiplos de 0.02 para precisión y valores más limpios
+        y_min_ajustado = np.floor((y_min - margen) / 0.02) * 0.02
+        y_max_ajustado = np.ceil((y_max + margen) / 0.02) * 0.02
+        
+        # Asegurar que el rango mínimo sea 0.06
+        if y_max_ajustado - y_min_ajustado < 0.06:
+            centro = (y_min_ajustado + y_max_ajustado) / 2
+            y_min_ajustado = centro - 0.03
+            y_max_ajustado = centro + 0.03
+        
+        return (max(0.3, y_min_ajustado), min(1.0, y_max_ajustado))
+
+    def dibujar_panel(ax, metodo, metrica, conjunto):
+        df_metodo = df_grafico[(df_grafico['Metodo'] == metodo) & (df_grafico['Conjunto'] == conjunto)].copy()
         if df_metodo.empty:
             ax.axis('off')
             return
+
+        # Calcular límites Y dinámicos
+        ylim = calcular_ylim_dinamico(df_metodo, metrica)
 
         for idx, clasificador in enumerate(['DT', 'RF', 'KNN', 'SVM', 'XGB']):
             df_clf = df_metodo[df_metodo['Clasificador'] == clasificador].sort_values('Top_Orden')
@@ -175,28 +208,11 @@ def generar_graficos():
                 **estilos[clasificador]
             )
 
-            # Etiquetas numéricas sobre cada punto con offsets por clasificador
-            for punto_idx, (x_val, y_val) in enumerate(zip(df_clf['Top'], df_clf[metrica])):
-                dx, dy = offset_por_clasificador[clasificador]
-                extra = punto_idx * (1 if dy >= 0 else -1)
-                ax.annotate(
-                    f'{y_val:.3f}',
-                    (x_val, y_val),
-                    textcoords='offset points',
-                    xytext=(dx, dy + extra),
-                    ha='center',
-                    fontsize=9,
-                    color=palette[idx],
-                    bbox=dict(boxstyle='round,pad=0.14', facecolor='white', edgecolor='none', alpha=0.85),
-                    clip_on=False,
-                    zorder=6,
-                )
-
         ax.set_title(f'{nombres_metodo[metodo]}', fontsize=11, fontweight='bold')
         ax.set_xlabel('Top')
         ax.set_ylabel(metrica)
         ax.set_ylim(ylim[0], ylim[1])
-        ax.set_yticks(np.arange(ylim[0], ylim[1] + 0.001, 0.1))
+        ax.set_yticks(np.arange(ylim[0], ylim[1] + 0.001, 0.05))
         ax.set_xticks(orden_top)
         ax.set_xticklabels(orden_top)
         ax.grid(True, which='major', axis='y', linestyle='-', linewidth=0.8, alpha=0.35)
@@ -206,10 +222,10 @@ def generar_graficos():
     for conjunto, sufijo_salida in [('Validación', ''), ('Entrenamiento', '_train')]:
         n_rows = 2
         n_cols = 2
-        fig1, axes1 = plt.subplots(n_rows, n_cols, figsize=(12, 10), sharex=True, sharey=True)
+        fig1, axes1 = plt.subplots(n_rows, n_cols, figsize=(12, 10), sharex=True)
         axes1_flat = axes1.flatten()
         for i, metodo in enumerate(tqdm(orden_metodos, desc=f'Graficando exactitud {conjunto.lower()}', unit='metodo')):
-            dibujar_panel(axes1_flat[i], metodo, 'Exactitud', conjunto, ylim=(0.6, 0.9))
+            dibujar_panel(axes1_flat[i], metodo, 'Exactitud', conjunto)
         handles, labels = axes1_flat[0].get_legend_handles_labels()
         fig1.legend(handles, labels, loc='lower center', ncol=5, frameon=True, fontsize=13)
         plt.tight_layout(rect=[0, 0.06, 1, 0.95])
@@ -219,13 +235,13 @@ def generar_graficos():
         print(f'Guardado: {ruta_exactitud}')
 
         n_rows2 = len(orden_metodos)
-        fig2, axes2 = plt.subplots(n_rows2, 2, figsize=(14, 4 * n_rows2), sharex=True, sharey=True)
+        fig2, axes2 = plt.subplots(n_rows2, 2, figsize=(14, 4 * n_rows2), sharex=True)
         for fila, metodo in enumerate(tqdm(orden_metodos, desc=f'Graficando sensibilidad/especificidad {conjunto.lower()}', unit='metodo')):
-            dibujar_panel(axes2[fila, 0], metodo, 'Sensibilidad', conjunto, ylim=(0.4, 1.0))
+            dibujar_panel(axes2[fila, 0], metodo, 'Sensibilidad', conjunto)
             axes2[fila, 0].set_title(f'{nombres_metodo[metodo]} - Sensibilidad', fontsize=13, fontweight='bold')
             axes2[fila, 0].set_xlabel('Top')
 
-            dibujar_panel(axes2[fila, 1], metodo, 'Especificidad', conjunto, ylim=(0.4, 1.0))
+            dibujar_panel(axes2[fila, 1], metodo, 'Especificidad', conjunto)
             axes2[fila, 1].set_title(f'{nombres_metodo[metodo]} - Especificidad', fontsize=13, fontweight='bold')
             axes2[fila, 1].set_xlabel('Top')
 
