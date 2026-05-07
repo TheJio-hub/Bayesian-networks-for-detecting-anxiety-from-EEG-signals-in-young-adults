@@ -42,9 +42,12 @@ def leer_metricas(ruta_csv: Path) -> dict[str, float]:
 def construir_tabla_bloque(raiz: Path, bloque: str) -> pd.DataFrame:
     base = raiz / "Resultados" / "Análisis por bandas" / "Modelos por banda"
 
+    # Asimetria solo tiene Top 8; Ratios tiene ambos (Top 32 y Top 8)
+    tops_a_usar = [(8, "Top 8")] if bloque == "Asimetria" else TOPS
+
     filas = []
     for metodo in tqdm(METODOS, desc=f'Tabla {bloque}', unit='metodo', leave=False):
-        for top_num, top_nombre in TOPS:
+        for top_num, top_nombre in tops_a_usar:
             fila = {"Metodo": metodo, "Top": top_nombre}
             for clasificador in CLASIFICADORES:
                 ruta_csv = base / top_nombre / bloque / f"Resultados_{clasificador}_Ranking_{metodo}_top{top_num}.csv"

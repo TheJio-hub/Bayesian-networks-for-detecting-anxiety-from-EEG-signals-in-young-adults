@@ -12,14 +12,14 @@ def tqdm(*args, **kwargs):
 
 
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
-from sklearn.model_selection import KFold, LeaveOneGroupOut
-
-from xgboost import XGBClassifier
+from sklearn.model_selection import LeaveOneGroupOut
+from sklearn.neighbors import KNeighborsClassifier
 
 
 BLOQUES = ["Alpha", "Beta", "Delta", "Asimetria", "Ratios"]
 METODOS = ["Fisher", "Mutual_Info", "mRMR", "DT"]
 TOPS = [(8, "Top 8"), (32, "Top 32")]
+VALID_BANDS = ["Alpha", "Beta", "Delta"]
 
 
 def raiz_proyecto() -> Path:
@@ -145,8 +145,17 @@ def cargar_ranking_bloque(raiz: Path, bloque: str, metodo: str) -> pd.DataFrame:
             return pd.DataFrame(columns=["Caracteristica", "Valor_Ranking"])
         return normalizar_ranking(pd.read_csv(ruta), metodo)
 
+    # Asimetria: usar único ranking de Alpha (no concatenar bandas)
+    if bloque == "Asimetria":
+        banda_unica = "Alpha"
+        ruta = ruta_ranking_csv(raiz, banda_unica, bloque, metodo)
+        if ruta is None:
+            return pd.DataFrame(columns=["Caracteristica", "Valor_Ranking"])
+        return normalizar_ranking(pd.read_csv(ruta), metodo)
+
+    # Ratios: concatenar rankings de todas las bandas
     frames = []
-    for banda in ["Alpha", "Beta", "Delta"]:
+    for banda in VALID_BANDS:
         ruta = ruta_ranking_csv(raiz, banda, bloque, metodo)
         if ruta is None:
             continue
@@ -169,40 +178,13 @@ def seleccionar_caracteristicas(df_ranking: pd.DataFrame, n: int) -> list[str]:
     return df["Caracteristica"].tolist()[:n]
 
 
-def crear_modelo_xgb() -> XGBClassifier:
-    return XGBClassifier(
-        n_estimators=200,
-        learning_rate=0.05,
-        max_depth=3,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        min_child_weight=1,
-        gamma=0,
-        reg_alpha=0.0,
-        reg_lambda=1.0,
-        objective="binary:logistic",
-        eval_metric="logloss",
-        tree_method="hist",
-        random_state=42,
-        n_jobs=-1,
-    )
-
-
 def entrenar_y_evaluar(X: pd.DataFrame, y: np.ndarray, grupos: np.ndarray, modelo) -> pd.DataFrame:
     logo = LeaveOneGroupOut()
     y_real_total = []
     y_predicha_total = []
-    y_train_total = []
-    y_train_pred_total = []
     total_folds = logo.get_n_splits(X, y, grupos)
 
-    for indice_entrenamiento, indice_prueba in tqdm(
-        logo.split(X, y, grupos),
-        total=total_folds,
-        desc='LOGO XGB',
-        unit='fold',
-        leave=False,
-    ):
+    for indice_entrenamiento, indice_prueba in tqdm(logo.split(X, y, grupos), total=total_folds, desc='LOGO por bloque', unit='fold', leave=False):
         X_entrenamiento, X_prueba = X.iloc[indice_entrenamiento], X.iloc[indice_prueba]
         y_entrenamiento, y_prueba = y[indice_entrenamiento], y[indice_prueba]
 
@@ -212,15 +194,6 @@ def entrenar_y_evaluar(X: pd.DataFrame, y: np.ndarray, grupos: np.ndarray, model
         y_real_total.extend(y_prueba)
         y_predicha_total.extend(prediccion)
 
-        kfold = KFold(n_splits=5, shuffle=True, random_state=42)
-        for idx_train_cv, idx_val_cv in kfold.split(X_entrenamiento):
-            X_cv_train, X_cv_val = X_entrenamiento.iloc[idx_train_cv], X_entrenamiento.iloc[idx_val_cv]
-            y_cv_train, y_cv_val = y_entrenamiento[idx_train_cv], y_entrenamiento[idx_val_cv]
-            modelo.fit(X_cv_train, y_cv_train)
-            train_pred = modelo.predict(X_cv_val)
-            y_train_total.extend(y_cv_val)
-            y_train_pred_total.extend(train_pred)
-
     precision, sensibilidad, f1, _ = precision_recall_fscore_support(
         y_real_total,
         y_predicha_total,
@@ -228,41 +201,27 @@ def entrenar_y_evaluar(X: pd.DataFrame, y: np.ndarray, grupos: np.ndarray, model
         zero_division=0,
     )
     exactitud = accuracy_score(y_real_total, y_predicha_total)
-    cm = confusion_matrix(y_real_total, y_predicha_total, labels=[0, 1])
-    total = cm.sum()
-    especificidades = []
-    for clase_idx in range(cm.shape[0]):
-        tp = cm[clase_idx, clase_idx]
-        fp = cm[:, clase_idx].sum() - tp
-        fn = cm[clase_idx, :].sum() - tp
-        tn = total - tp - fp - fn
-        especificidades.append(tn / (tn + fp) if (tn + fp) else 0.0)
-
-    precision_tr, sensibilidad_tr, f1_tr, _ = precision_recall_fscore_support(
-        y_train_total,
-        y_train_pred_total,
-        labels=[0, 1],
-        zero_division=0,
-    )
-    exactitud_tr = accuracy_score(y_train_total, y_train_pred_total)
-    cm_tr = confusion_matrix(y_train_total, y_train_pred_total, labels=[0, 1])
-    total_tr = cm_tr.sum()
-    especificidades_tr = []
-    for clase_idx in range(cm_tr.shape[0]):
-        tp = cm_tr[clase_idx, clase_idx]
-        fp = cm_tr[:, clase_idx].sum() - tp
-        fn = cm_tr[clase_idx, :].sum() - tp
-        tn = total_tr - tp - fp - fn
-        especificidades_tr.append(tn / (tn + fp) if (tn + fp) else 0.0)
+    tn, fp, fn, tp = confusion_matrix(y_real_total, y_predicha_total, labels=[0, 1]).ravel()
+    especificidad = tn / (tn + fp) if (tn + fp) else 0.0
 
     return pd.DataFrame(
         [
-            {'Precision': precision[0], 'Sensibilidad': sensibilidad[0], 'Especificidad': especificidades[0], 'Puntaje_F1': f1[0], 'Exactitud': exactitud},
-            {'Precision': precision[1], 'Sensibilidad': sensibilidad[1], 'Especificidad': especificidades[1], 'Puntaje_F1': f1[1], 'Exactitud': exactitud},
-            {'Precision': precision_tr[0], 'Sensibilidad': sensibilidad_tr[0], 'Especificidad': especificidades_tr[0], 'Puntaje_F1': f1_tr[0], 'Exactitud': exactitud_tr},
-            {'Precision': precision_tr[1], 'Sensibilidad': sensibilidad_tr[1], 'Especificidad': especificidades_tr[1], 'Puntaje_F1': f1_tr[1], 'Exactitud': exactitud_tr},
+            {
+                "Precision": precision[0],
+                "Sensibilidad": sensibilidad[0],
+                "Especificidad": especificidad,
+                "Puntaje_F1": f1[0],
+                "Exactitud": exactitud,
+            },
+            {
+                "Precision": precision[1],
+                "Sensibilidad": sensibilidad[1],
+                "Especificidad": especificidad,
+                "Puntaje_F1": f1[1],
+                "Exactitud": exactitud,
+            },
         ],
-        index=['Clase 0 (Validación)', 'Clase 1 (Validación)', 'Clase 0 (Entrenamiento)', 'Clase 1 (Entrenamiento)'],
+        index=["Clase 0", "Clase 1"],
     )
 
 
@@ -309,9 +268,15 @@ def evaluar_bloque(
     if not columnas_validas:
         return
 
-    modelo = crear_modelo_xgb()
+    if bloque == "Asimetria":
+        tops_a_evaluar = [(8, "Top 8")]
+    else:
+        tops_a_evaluar = TOPS
 
-    for n_top, nombre_top in tqdm(TOPS, desc=f'Evaluando {bloque}', unit='top', leave=False):
+    modelo = KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
+    nombre_clasificador = "KNN"
+
+    for n_top, nombre_top in tqdm(tops_a_evaluar, desc=f'Evaluando {bloque}', unit='top', leave=False):
         dir_top = raiz / "Resultados" / "Análisis por bandas" / "Modelos por banda" / nombre_top / bloque
         dir_top.mkdir(parents=True, exist_ok=True)
 
@@ -320,8 +285,12 @@ def evaluar_bloque(
             if df_ranking.empty:
                 continue
 
-            caracteristicas = seleccionar_caracteristicas(df_ranking, n_top)
-            caracteristicas = [c for c in caracteristicas if c in columnas_validas and c in df.columns]
+            if bloque == "Ratios" and n_top == 32:
+                caracteristicas = [c for c in df.columns if c in columnas_validas]
+            else:
+                caracteristicas = seleccionar_caracteristicas(df_ranking, n_top)
+                caracteristicas = [c for c in caracteristicas if c in columnas_validas and c in df.columns]
+
             if not caracteristicas:
                 continue
 
@@ -331,7 +300,7 @@ def evaluar_bloque(
                 continue
 
             resultados = entrenar_y_evaluar(X, y, grupos, modelo)
-            archivo_salida = dir_top / f"Resultados_XGB_Ranking_{metodo}_top{n_top}.csv"
+            archivo_salida = dir_top / f"Resultados_{nombre_clasificador}_Ranking_{metodo}_top{n_top}.csv"
             resultados.to_csv(archivo_salida)
             print(f"Guardado: {archivo_salida}")
 

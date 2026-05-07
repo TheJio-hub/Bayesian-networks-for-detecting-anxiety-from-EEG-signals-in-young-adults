@@ -238,5 +238,58 @@ def generar_graficos():
         print(f'Guardado: {ruta_sens_espe}')
 
 
+def generar_tablas_csv():
+    df = construir_dataframe_base()
+    if df.empty:
+        print('No se encontraron CSV de métricas para tablas.')
+        return
+
+    base_salida = os.path.join('Resultados', 'Análisis global', 'Modelos generados', 'Gráficas comparativas')
+    os.makedirs(base_salida, exist_ok=True)
+
+    # Filtrar solo validación y tops 15, 20, 30
+    df_filtrado = df[(df['Conjunto'] == 'Validación') & (df['Top'].isin(['Top 15', 'Top 20', 'Top 30']))].copy()
+    
+    # Orden deseado para filas
+    orden_tops = ['Top 15', 'Top 20', 'Top 30']
+    orden_clf = ['DT', 'RF', 'KNN', 'SVM', 'XGB']
+    
+    # Generar una tabla por método de selección
+    metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'DT']
+    nombres_metodo_archivo = {
+        'Fisher': 'Fisher',
+        'Mutual_Info': 'Mutual_Info',
+        'mRMR': 'mRMR',
+        'DT': 'DT'
+    }
+    
+    for metodo in tqdm(metodos, desc='Generando tablas CSV', unit='metodo'):
+        df_metodo = df_filtrado[df_filtrado['Metodo'] == metodo].copy()
+        if df_metodo.empty:
+            continue
+        
+        # Construir tabla con estructura: Top | Clasificador | Exactitud | Sensibilidad | Especificidad
+        filas = []
+        for top in orden_tops:
+            for clf in orden_clf:
+                fila_data = df_metodo[(df_metodo['Top'] == top) & (df_metodo['Clasificador'] == clf)]
+                if not fila_data.empty:
+                    row = fila_data.iloc[0]
+                    filas.append({
+                        'Top': top,
+                        'Clasificador': clf,
+                        'Exactitud': round(row['Exactitud'], 3),
+                        'Sensibilidad': round(row['Sensibilidad'], 3),
+                        'Especificidad': round(row['Especificidad'], 3),
+                    })
+        
+        if filas:
+            df_tabla = pd.DataFrame(filas)
+            archivo_salida = os.path.join(base_salida, f'Tabla_{nombres_metodo_archivo[metodo]}.csv')
+            df_tabla.to_csv(archivo_salida, index=False)
+            print(f'Guardado: {archivo_salida}')
+
+
 if __name__ == '__main__':
     generar_graficos()
+    generar_tablas_csv()

@@ -10,21 +10,15 @@ def tqdm(*args, **kwargs):
     kwargs.setdefault('miniters', 1)
     return _tqdm(*args, **kwargs)
 
+
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
 from sklearn.model_selection import LeaveOneGroupOut
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
-from sklearn.tree import DecisionTreeClassifier
 
 
 BLOQUES = ["Alpha", "Beta", "Delta", "Asimetria", "Ratios"]
 METODOS = ["Fisher", "Mutual_Info", "mRMR", "DT"]
 TOPS = [(8, "Top 8"), (32, "Top 32")]
-CLASIFICADORES = {
-    "DT": DecisionTreeClassifier(random_state=42, class_weight="balanced", max_depth=5),
-    "KNN": KNeighborsClassifier(n_neighbors=5, n_jobs=-1),
-    "SVM": SVC(kernel="rbf", class_weight="balanced", random_state=42),
-}
 VALID_BANDS = ["Alpha", "Beta", "Delta"]
 
 
@@ -151,6 +145,15 @@ def cargar_ranking_bloque(raiz: Path, bloque: str, metodo: str) -> pd.DataFrame:
             return pd.DataFrame(columns=["Caracteristica", "Valor_Ranking"])
         return normalizar_ranking(pd.read_csv(ruta), metodo)
 
+    # Asimetria: usar único ranking de Alpha (no concatenar bandas)
+    if bloque == "Asimetria":
+        banda_unica = "Alpha"
+        ruta = ruta_ranking_csv(raiz, banda_unica, bloque, metodo)
+        if ruta is None:
+            return pd.DataFrame(columns=["Caracteristica", "Valor_Ranking"])
+        return normalizar_ranking(pd.read_csv(ruta), metodo)
+
+    # Ratios: concatenar rankings de todas las bandas
     frames = []
     for banda in VALID_BANDS:
         ruta = ruta_ranking_csv(raiz, banda, bloque, metodo)
@@ -265,7 +268,15 @@ def evaluar_bloque(
     if not columnas_validas:
         return
 
-    for n_top, nombre_top in tqdm(TOPS, desc=f'Evaluando {bloque}', unit='top', leave=False):
+    if bloque == "Asimetria":
+        tops_a_evaluar = [(8, "Top 8")]
+    else:
+        tops_a_evaluar = TOPS
+
+    modelo = SVC(kernel="rbf", class_weight="balanced", random_state=42)
+    nombre_clasificador = "SVM"
+
+    for n_top, nombre_top in tqdm(tops_a_evaluar, desc=f'Evaluando {bloque}', unit='top', leave=False):
         dir_top = raiz / "Resultados" / "Análisis por bandas" / "Modelos por banda" / nombre_top / bloque
         dir_top.mkdir(parents=True, exist_ok=True)
 
@@ -274,8 +285,12 @@ def evaluar_bloque(
             if df_ranking.empty:
                 continue
 
-            caracteristicas = seleccionar_caracteristicas(df_ranking, n_top)
-            caracteristicas = [c for c in caracteristicas if c in columnas_validas and c in df.columns]
+            if bloque == "Ratios" and n_top == 32:
+                caracteristicas = [c for c in df.columns if c in columnas_validas]
+            else:
+                caracteristicas = seleccionar_caracteristicas(df_ranking, n_top)
+                caracteristicas = [c for c in caracteristicas if c in columnas_validas and c in df.columns]
+
             if not caracteristicas:
                 continue
 
@@ -284,11 +299,10 @@ def evaluar_bloque(
             if X.empty:
                 continue
 
-            for nombre_clasificador, modelo in tqdm(CLASIFICADORES.items(), desc=f'Clasificadores {bloque}', unit='clf', leave=False):
-                resultados = entrenar_y_evaluar(X, y, grupos, modelo)
-                archivo_salida = dir_top / f"Resultados_{nombre_clasificador}_Ranking_{metodo}_top{n_top}.csv"
-                resultados.to_csv(archivo_salida)
-                print(f"Guardado: {archivo_salida}")
+            resultados = entrenar_y_evaluar(X, y, grupos, modelo)
+            archivo_salida = dir_top / f"Resultados_{nombre_clasificador}_Ranking_{metodo}_top{n_top}.csv"
+            resultados.to_csv(archivo_salida)
+            print(f"Guardado: {archivo_salida}")
 
 
 def main() -> None:
