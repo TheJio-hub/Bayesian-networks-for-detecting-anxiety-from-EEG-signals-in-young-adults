@@ -80,7 +80,23 @@ def ruta_ranking_csv(raiz: Path, banda: str, bloque: str, metodo: str) -> Path |
             return None
         return ruta if ruta.exists() else None
 
-    if bloque in {"Asimetria", "Ratios"}:
+    if bloque == "Asimetria":
+        bloque_dir = base / "Asimetria"
+        if metodo == "Fisher":
+            ruta = bloque_dir / "Fisher_Asimetria.csv"
+        elif metodo == "Mutual_Info":
+            ruta = bloque_dir / "MI_Asimetria.csv"
+            if not ruta.exists():
+                ruta = bloque_dir / "MMI_Asimetria.csv"
+        elif metodo == "mRMR":
+            ruta = bloque_dir / "mRMR_Asimetria.csv"
+        elif metodo == "DT":
+            ruta = bloque_dir / "DT_Asimetria.csv"
+        else:
+            return None
+        return ruta if ruta.exists() else None
+
+    if bloque == "Ratios":
         bloque_dir = base / banda / bloque
         if metodo == "Fisher":
             ruta = bloque_dir / f"Fisher_{bloque}_{banda}.csv"
@@ -145,10 +161,9 @@ def cargar_ranking_bloque(raiz: Path, bloque: str, metodo: str) -> pd.DataFrame:
             return pd.DataFrame(columns=["Caracteristica", "Valor_Ranking"])
         return normalizar_ranking(pd.read_csv(ruta), metodo)
 
-    # Asimetria: usar único ranking de Alpha (no concatenar bandas)
+    # Asimetria: usar ranking global (50 caracteristicas)
     if bloque == "Asimetria":
-        banda_unica = "Alpha"
-        ruta = ruta_ranking_csv(raiz, banda_unica, bloque, metodo)
+        ruta = ruta_ranking_csv(raiz, "", bloque, metodo)
         if ruta is None:
             return pd.DataFrame(columns=["Caracteristica", "Valor_Ranking"])
         return normalizar_ranking(pd.read_csv(ruta), metodo)
@@ -269,7 +284,7 @@ def evaluar_bloque(
         return
 
     if bloque == "Asimetria":
-        tops_a_evaluar = [(8, "Top 8")]
+        tops_a_evaluar = [(8, "Top 8"), (32, "Top 32")]
     else:
         tops_a_evaluar = TOPS
 
@@ -285,11 +300,8 @@ def evaluar_bloque(
             if df_ranking.empty:
                 continue
 
-            if bloque == "Ratios" and n_top == 32:
-                caracteristicas = [c for c in df.columns if c in columnas_validas]
-            else:
-                caracteristicas = seleccionar_caracteristicas(df_ranking, n_top)
-                caracteristicas = [c for c in caracteristicas if c in columnas_validas and c in df.columns]
+            caracteristicas = seleccionar_caracteristicas(df_ranking, n_top)
+            caracteristicas = [c for c in caracteristicas if c in columnas_validas and c in df.columns]
 
             if not caracteristicas:
                 continue

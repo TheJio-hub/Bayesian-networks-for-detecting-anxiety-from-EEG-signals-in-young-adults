@@ -111,15 +111,15 @@ def generar_graficos():
         print('No se encontraron CSV de métricas para graficar.')
         return
 
-    # Para visualización, mostrar solo Top 15, Top 20 y Top 30.
+    # Para visualización, mostrar todos los Tops disponibles (Top 40, Top 30, Top 20, Top 15, Top 10).
     # Los datos completos se conservan en el DataFrame original para las tablas.
-    df_grafico = df[df['Top_Orden'].isin([15, 20, 30])].copy()
+    df_grafico = df.copy()
 
     base_salida = os.path.join('Resultados', 'Análisis global', 'Modelos generados', 'Gráficas comparativas')
     os.makedirs(base_salida, exist_ok=True)
 
     # Mostrar ticks de menor a mayor para claridad en los subgráficos
-    orden_top = ['Top 15', 'Top 20', 'Top 30']
+    orden_top = ['Top 40', 'Top 30', 'Top 20', 'Top 15', 'Top 10']
     orden_metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'DT']
     nombres_metodo = {
         'Fisher': 'Fisher',
@@ -154,11 +154,12 @@ def generar_graficos():
     plt.rcParams.update({
         'font.family': 'serif',
         'font.serif': ['Times New Roman', 'Times', 'DejaVu Serif'],
-        'axes.titlesize': 14,
-        'axes.labelsize': 13,
-        'xtick.labelsize': 12,
-        'ytick.labelsize': 12,
-        'legend.fontsize': 11,
+        'axes.titlesize': 15,
+        'axes.labelsize': 14,
+        'axes.labelweight': 'bold',
+        'xtick.labelsize': 13,
+        'ytick.labelsize': 13,
+        'legend.fontsize': 12,
     })
     palette = ['#1f2937', '#374151', '#6b7280', '#0f766e', '#b45309']
 
@@ -208,7 +209,26 @@ def generar_graficos():
                 **estilos[clasificador]
             )
 
-        ax.set_title(f'{nombres_metodo[metodo]}', fontsize=11, fontweight='bold')
+            # Etiquetas numéricas por punto (más visibles para reporte)
+            for punto_idx, (x_val, y_val) in enumerate(zip(df_clf['Top'], df_clf[metrica])):
+                dx, dy = offset_por_clasificador[clasificador]
+                ajuste = punto_idx * (1 if dy >= 0 else -1)
+                ax.annotate(
+                    f'{y_val:.3f}',
+                    (x_val, y_val),
+                    textcoords='offset points',
+                    xytext=(dx, dy + ajuste),
+                    ha='center',
+                    fontsize=10,
+                    fontweight='bold',
+                    color=palette[idx],
+                    bbox=dict(boxstyle='round,pad=0.12', facecolor='white', edgecolor='none', alpha=0.88),
+                    clip_on=False,
+                    zorder=6,
+                )
+
+        # Título por panel removido (se usa título global de figura para evitar redundancia)
+        ax.set_title(nombres_metodo.get(metodo, metodo), fontsize=14, fontweight='bold', pad=8)
         ax.set_xlabel('Top')
         ax.set_ylabel(metrica)
         ax.set_ylim(ylim[0], ylim[1])
@@ -218,60 +238,80 @@ def generar_graficos():
         ax.grid(True, which='major', axis='y', linestyle='-', linewidth=0.8, alpha=0.35)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
+        
+        # Marcar etiquetas de ticks en negrita para mayor legibilidad
+        for tick in ax.get_xticklabels() + ax.get_yticklabels():
+            tick.set_fontweight('bold')
 
     for conjunto, sufijo_salida in [('Validación', ''), ('Entrenamiento', '_train')]:
         n_rows = 2
         n_cols = 2
-        fig1, axes1 = plt.subplots(n_rows, n_cols, figsize=(12, 10), sharex=True)
+        fig1, axes1 = plt.subplots(n_rows, n_cols, figsize=(12, 12), sharex=True)
         axes1_flat = axes1.flatten()
         for i, metodo in enumerate(tqdm(orden_metodos, desc=f'Graficando exactitud {conjunto.lower()}', unit='metodo')):
             dibujar_panel(axes1_flat[i], metodo, 'Exactitud', conjunto)
+        # Título global de la figura (evita títulos redundantes por panel)
+        fig1.suptitle('Exactitud', fontsize=16, fontweight='bold')
         handles, labels = axes1_flat[0].get_legend_handles_labels()
         fig1.legend(handles, labels, loc='lower center', ncol=5, frameon=True, fontsize=13)
-        plt.tight_layout(rect=[0, 0.06, 1, 0.95])
+        plt.tight_layout(rect=[0, 0.06, 1, 0.93])
         ruta_exactitud = os.path.join(base_salida, f'Comparativa_Exactitud_2x2{sufijo_salida}.png')
         plt.savefig(ruta_exactitud, dpi=300, bbox_inches='tight')
         plt.close(fig1)
         print(f'Guardado: {ruta_exactitud}')
 
-        n_rows2 = len(orden_metodos)
-        fig2, axes2 = plt.subplots(n_rows2, 2, figsize=(14, 4 * n_rows2), sharex=True)
-        for fila, metodo in enumerate(tqdm(orden_metodos, desc=f'Graficando sensibilidad/especificidad {conjunto.lower()}', unit='metodo')):
-            dibujar_panel(axes2[fila, 0], metodo, 'Sensibilidad', conjunto)
-            axes2[fila, 0].set_title(f'{nombres_metodo[metodo]} - Sensibilidad', fontsize=13, fontweight='bold')
-            axes2[fila, 0].set_xlabel('Top')
+        # Figura separada para Sensibilidad (2x2)
+        n_rows_s = 2
+        n_cols_s = 2
+        fig_sens, axes_sens = plt.subplots(n_rows_s, n_cols_s, figsize=(14, 11), sharex=True)
+        axes_sens_flat = axes_sens.flatten()
+        for i, metodo in enumerate(tqdm(orden_metodos, desc=f'Graficando sensibilidad {conjunto.lower()}', unit='metodo')):
+            dibujar_panel(axes_sens_flat[i], metodo, 'Sensibilidad', conjunto)
+            axes_sens_flat[i].set_xlabel('Top')
 
-            dibujar_panel(axes2[fila, 1], metodo, 'Especificidad', conjunto)
-            axes2[fila, 1].set_title(f'{nombres_metodo[metodo]} - Especificidad', fontsize=13, fontweight='bold')
-            axes2[fila, 1].set_xlabel('Top')
+        # Título global para la figura de sensibilidad
+        fig_sens.suptitle('Sensibilidad', fontsize=16, fontweight='bold')
+        handles2, labels2 = axes_sens_flat[0].get_legend_handles_labels()
+        fig_sens.legend(handles2, labels2, loc='lower center', ncol=5, frameon=True, fontsize=13)
+        plt.tight_layout(rect=[0, 0.06, 1, 0.93])
+        ruta_sens = os.path.join(base_salida, f'Comparativa_Sensibilidad_2x2{sufijo_salida}.png')
+        plt.savefig(ruta_sens, dpi=300, bbox_inches='tight')
+        plt.close(fig_sens)
+        print(f'Guardado: {ruta_sens}')
 
-        handles2, labels2 = axes2[0, 0].get_legend_handles_labels()
-        fig2.legend(handles2, labels2, loc='lower center', ncol=5, frameon=True, fontsize=13)
-        plt.tight_layout(rect=[0, 0.06, 1, 0.95])
-        ruta_sens_espe = os.path.join(base_salida, f'Comparativa_Sensibilidad_Especificidad_4x2{sufijo_salida}.png')
-        plt.savefig(ruta_sens_espe, dpi=300, bbox_inches='tight')
-        plt.close(fig2)
-        print(f'Guardado: {ruta_sens_espe}')
+        # Figura separada para Especificidad (2x2)
+        n_rows_e = 2
+        n_cols_e = 2
+        fig_espe, axes_espe = plt.subplots(n_rows_e, n_cols_e, figsize=(14, 11), sharex=True)
+        axes_espe_flat = axes_espe.flatten()
+        for i, metodo in enumerate(tqdm(orden_metodos, desc=f'Graficando especificidad {conjunto.lower()}', unit='metodo')):
+            dibujar_panel(axes_espe_flat[i], metodo, 'Especificidad', conjunto)
+            axes_espe_flat[i].set_xlabel('Top')
+
+        # Título global para la figura de especificidad
+        fig_espe.suptitle('Especificidad', fontsize=16, fontweight='bold')
+        handles3, labels3 = axes_espe_flat[0].get_legend_handles_labels()
+        fig_espe.legend(handles3, labels3, loc='lower center', ncol=5, frameon=True, fontsize=13)
+        plt.tight_layout(rect=[0, 0.06, 1, 0.93])
+        ruta_espe = os.path.join(base_salida, f'Comparativa_Especificidad_2x2{sufijo_salida}.png')
+        plt.savefig(ruta_espe, dpi=300, bbox_inches='tight')
+        plt.close(fig_espe)
+        print(f'Guardado: {ruta_espe}')
 
 
 def generar_tablas_csv():
-    df = construir_dataframe_base()
-    if df.empty:
-        print('No se encontraron CSV de métricas para tablas.')
-        return
-
+    """Genera tablas CSV leyendo directamente de archivos para obtener ambas clases."""
+    base_dir = os.path.join('Resultados', 'Análisis global', 'Modelos generados')
     base_salida = os.path.join('Resultados', 'Análisis global', 'Modelos generados', 'Gráficas comparativas')
     os.makedirs(base_salida, exist_ok=True)
-
-    # Filtrar solo validación y tops 15, 20, 30
-    df_filtrado = df[(df['Conjunto'] == 'Validación') & (df['Top'].isin(['Top 15', 'Top 20', 'Top 30']))].copy()
     
-    # Orden deseado para filas
-    orden_tops = ['Top 15', 'Top 20', 'Top 30']
+    configuracion = [('Top 30', 30), ('Top 20', 20), ('Top 15', 15)]
+    clasificadores = ['DT', 'RF', 'KNN', 'SVM', 'XGB']
+    metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'DT']
+    tops_permitidos_metodo_dt = {10, 15, 20}
+    
     orden_clf = ['DT', 'RF', 'KNN', 'SVM', 'XGB']
     
-    # Generar una tabla por método de selección
-    metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'DT']
     nombres_metodo_archivo = {
         'Fisher': 'Fisher',
         'Mutual_Info': 'Mutual_Info',
@@ -280,23 +320,46 @@ def generar_tablas_csv():
     }
     
     for metodo in tqdm(metodos, desc='Generando tablas CSV', unit='metodo'):
-        df_metodo = df_filtrado[df_filtrado['Metodo'] == metodo].copy()
-        if df_metodo.empty:
-            continue
-        
-        # Construir tabla con estructura: Top | Clasificador | Exactitud | Sensibilidad | Especificidad
         filas = []
-        for top in orden_tops:
+        
+        for nombre_top, sufijo in configuracion:
             for clf in orden_clf:
-                fila_data = df_metodo[(df_metodo['Top'] == top) & (df_metodo['Clasificador'] == clf)]
-                if not fila_data.empty:
-                    row = fila_data.iloc[0]
+                # DT como MÉTODO solo tiene Top 10, 15, 20
+                if metodo == 'DT' and sufijo not in tops_permitidos_metodo_dt:
+                    continue
+                
+                archivo = f'Resultados_{clf}_Ranking_{metodo}_top{sufijo}.csv'
+                ruta_csv = os.path.join(base_dir, nombre_top, archivo)
+                
+                if not os.path.exists(ruta_csv):
+                    continue
+                
+                # Leer CSV para obtener métricas de ambas clases
+                df_csv = pd.read_csv(ruta_csv, index_col=0)
+                
+                # Extraer Clase 0 y Clase 1 de Validación
+                if 'Clase 0 (Validación)' in df_csv.index and 'Clase 1 (Validación)' in df_csv.index:
+                    row_c0 = df_csv.loc['Clase 0 (Validación)']
+                    row_c1 = df_csv.loc['Clase 1 (Validación)']
+                    
+                    # Guardar Clase 0
                     filas.append({
-                        'Top': top,
+                        'Top': nombre_top,
                         'Clasificador': clf,
-                        'Exactitud': round(row['Exactitud'], 3),
-                        'Sensibilidad': round(row['Sensibilidad'], 3),
-                        'Especificidad': round(row['Especificidad'], 3),
+                        'Clase': 'Clase 0',
+                        'Exactitud': round(float(row_c0['Exactitud']), 3),
+                        'Sensibilidad': round(float(row_c0['Sensibilidad']), 3),
+                        'Especificidad': round(float(row_c0['Especificidad']), 3),
+                    })
+                    
+                    # Guardar Clase 1
+                    filas.append({
+                        'Top': nombre_top,
+                        'Clasificador': clf,
+                        'Clase': 'Clase 1',
+                        'Exactitud': round(float(row_c1['Exactitud']), 3),
+                        'Sensibilidad': round(float(row_c1['Sensibilidad']), 3),
+                        'Especificidad': round(float(row_c1['Especificidad']), 3),
                     })
         
         if filas:
@@ -304,6 +367,7 @@ def generar_tablas_csv():
             archivo_salida = os.path.join(base_salida, f'Tabla_{nombres_metodo_archivo[metodo]}.csv')
             df_tabla.to_csv(archivo_salida, index=False)
             print(f'Guardado: {archivo_salida}')
+
 
 
 if __name__ == '__main__':

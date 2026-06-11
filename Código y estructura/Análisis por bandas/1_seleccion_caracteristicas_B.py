@@ -186,6 +186,41 @@ def evaluar_caracteristicas_por_banda():
     cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
     all_features = [c for c in df_filtered.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df_filtered[c])]
 
+    # Asimetria global (todas las 50 caracteristicas), no por banda.
+    dir_asim_global = os.path.join(output_dir, 'Asimetria')
+    os.makedirs(dir_asim_global, exist_ok=True)
+    cols_asim_global = [c for c in df_asim.columns if c.startswith('Asym_')] if not df_asim.empty else []
+    X_asim_global = df_asim[cols_asim_global] if cols_asim_global else pd.DataFrame(index=df_filtered.index)
+
+    try:
+        guardar_ranking_fisher_mi(
+            X_asim_global,
+            y,
+            os.path.join(dir_asim_global, 'Fisher_Asimetria.csv'),
+            os.path.join(dir_asim_global, 'MI_Asimetria.csv')
+        )
+    except Exception as e:
+        print(f"Error Fisher/MI Asimetria global: {e}")
+
+    try:
+        guardar_ranking_dt(
+            X_asim_global,
+            y,
+            os.path.join(dir_asim_global, 'DT_Asimetria.csv')
+        )
+    except Exception as e:
+        print(f"Error DT Asimetria global: {e}")
+
+    try:
+        guardar_ranking_mrmr(
+            X_asim_global,
+            y,
+            os.path.join(dir_asim_global, 'mRMR_Asimetria.csv'),
+            proporcion=1.0,
+        )
+    except Exception as e:
+        print(f"Error mRMR Asimetria global: {e}")
+
     for banda in tqdm(bandas, desc='Bandas', unit='banda'):
         
         cols_banda = [c for c in all_features if c.endswith(f"_{banda}")]
@@ -224,41 +259,6 @@ def evaluar_caracteristicas_por_banda():
             )
         except Exception as e:
             print(f"Error mRMR {banda}: {e}")
-
-        # Asimetria por banda
-        dir_asim = os.path.join(output_dir, banda, 'Asimetria')
-        os.makedirs(dir_asim, exist_ok=True)
-        cols_asim = [c for c in df_asim.columns if c.startswith('Asym_') and c.endswith(f'_{banda}')] if not df_asim.empty else []
-        X_asim = df_asim[cols_asim] if cols_asim else pd.DataFrame(index=df_filtered.index)
-
-        try:
-            guardar_ranking_fisher_mi(
-                X_asim,
-                y,
-                os.path.join(dir_asim, f'Fisher_Asimetria_{banda}.csv'),
-                os.path.join(dir_asim, f'MI_Asimetria_{banda}.csv')
-            )
-        except Exception as e:
-            print(f"Error Fisher/MI Asimetria {banda}: {e}")
-
-        try:
-            guardar_ranking_dt(
-                X_asim,
-                y,
-                os.path.join(dir_asim, f'DT_Asimetria_{banda}.csv')
-            )
-        except Exception as e:
-            print(f"Error DT Asimetria {banda}: {e}")
-
-        try:
-            guardar_ranking_mrmr(
-                X_asim,
-                y,
-                os.path.join(dir_asim, f'mRMR_Asimetria_{banda}.csv'),
-                proporcion=1.0,
-            )
-        except Exception as e:
-            print(f"Error mRMR Asimetria {banda}: {e}")
 
         # Ratios por banda
         dir_ratios = os.path.join(output_dir, banda, 'Ratios')

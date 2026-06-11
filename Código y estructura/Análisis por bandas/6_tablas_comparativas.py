@@ -42,8 +42,8 @@ def leer_metricas(ruta_csv: Path) -> dict[str, float]:
 def construir_tabla_bloque(raiz: Path, bloque: str) -> pd.DataFrame:
     base = raiz / "Resultados" / "Análisis por bandas" / "Modelos por banda"
 
-    # Asimetria solo tiene Top 8; Ratios tiene ambos (Top 32 y Top 8)
-    tops_a_usar = [(8, "Top 8")] if bloque == "Asimetria" else TOPS
+    # Asimetria y Ratios tienen Top 32 y Top 8
+    tops_a_usar = TOPS
 
     filas = []
     for metodo in tqdm(METODOS, desc=f'Tabla {bloque}', unit='metodo', leave=False):
@@ -65,6 +65,7 @@ def construir_tabla_bloque(raiz: Path, bloque: str) -> pd.DataFrame:
     df = df.set_index(["Metodo", "Top"])
     df.columns = pd.MultiIndex.from_tuples(df.columns, names=["Clasificador", "Metrica"])
     return df
+
 
 
 def guardar_tabla(df: pd.DataFrame, ruta_xlsx: Path, ruta_csv: Path) -> None:
