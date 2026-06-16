@@ -121,7 +121,7 @@ def principal():
     df_ranking = pd.read_csv(archivo_ranking)
     df_datos = pd.read_parquet(archivo_datos)
     
-    df_datos = df_datos[ (df_datos['Puntaje'] == 0) | (df_datos['Puntaje'] >= 5) ].copy()
+    df_datos = df_datos[ (df_datos['Puntaje'] == 0) | (df_datos['Puntaje'] >= 1) ].copy()
     y = df_datos['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
     grupos = df_datos['Sujeto'].values
     

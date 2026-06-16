@@ -167,7 +167,7 @@ def evaluar_caracteristicas_por_banda():
     df = pd.read_parquet(input_file)
 
     if 'Puntaje' in df.columns:
-        df_filtered = df[(df['Puntaje'] == 0) | (df['Puntaje'] >= 5)].copy()
+        df_filtered = df[(df['Puntaje'] == 0) | (df['Puntaje'] >= 1)].copy()
     else:
         df_filtered = df.copy()
 
@@ -175,11 +175,11 @@ def evaluar_caracteristicas_por_banda():
 
     df_asim = pd.read_parquet(input_asimetria) if os.path.exists(input_asimetria) else pd.DataFrame()
     if not df_asim.empty and 'Puntaje' in df_asim.columns:
-        df_asim = df_asim[(df_asim['Puntaje'] == 0) | (df_asim['Puntaje'] >= 5)].copy()
+        df_asim = df_asim[(df_asim['Puntaje'] == 0) | (df_asim['Puntaje'] >= 1)].copy()
 
     df_ratio = pd.read_parquet(input_ratios) if os.path.exists(input_ratios) else pd.DataFrame()
     if not df_ratio.empty and 'Puntaje' in df_ratio.columns:
-        df_ratio = df_ratio[(df_ratio['Puntaje'] == 0) | (df_ratio['Puntaje'] >= 5)].copy()
+        df_ratio = df_ratio[(df_ratio['Puntaje'] == 0) | (df_ratio['Puntaje'] >= 1)].copy()
     
     bandas = ['Delta', 'Alpha', 'Beta']
     

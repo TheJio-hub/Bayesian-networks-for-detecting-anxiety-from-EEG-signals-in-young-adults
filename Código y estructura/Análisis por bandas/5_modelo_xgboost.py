@@ -35,7 +35,7 @@ def cargar_dataframe(ruta: Path) -> pd.DataFrame:
 def filtrar_clases_extremas(df: pd.DataFrame) -> pd.DataFrame:
     if "Puntaje" not in df.columns:
         return df.copy()
-    return df[(df["Puntaje"] == 0) | (df["Puntaje"] >= 5)].copy()
+    return df[(df["Puntaje"] == 0) | (df["Puntaje"] >= 1)].copy()
 
 
 def preparar_datos(df: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:

@@ -22,8 +22,8 @@ def graficar_densidades(input_file, output_dir, tipo_analisis):
 
     df = pd.read_parquet(input_file)
     
-    # Filtrar solo Relajación (0) y Ansiedad (>=5)
-    df_filtrado = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 5) ].copy()
+    # Filtrar solo Relajación (0) y Ansiedad (>=1)
+    df_filtrado = df[ (df['Puntaje'] == 0) | (df['Puntaje'] >= 1) ].copy()
     
     # Asignar etiquetas
     df_filtrado['Grupo'] = df_filtrado['Puntaje'].apply(lambda x: 'Relajacion' if x == 0 else 'Ansiedad')

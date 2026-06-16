@@ -1,0 +1,96 @@
+\begin{thebibliography}{10}
+
+\bibitem{WHOICD11}
+{World Health Organization}.
+\newblock Icd-11: International classification of diseases 11th revision.
+\newblock \url{https://icd.who.int}, 2021.
+
+\bibitem{Chand2025}
+Suma~P. Chand and Raman Marwaha.
+\newblock Anxiety.
+\newblock In {\em StatPearls}. StatPearls Publishing, Treasure Island (FL), 2025.
+
+\bibitem{Hamilton1959}
+Max Hamilton.
+\newblock The assessment of anxiety states by rating.
+\newblock {\em British Journal of Medical Psychology}, 32(1):50--55, 1959.
+
+\bibitem{SCID2018}
+Structured clinical interview for dsm disorders (scid).
+\newblock \url{https://www.columbiapsychiatry.org/research/research-areas/services-policy-and-law/structured-clinical-interview-dsm-disorders-scid}, July 2018.
+\newblock Accessed: 2025-06-09.
+
+\bibitem{StatPearlsEEG2023}
+C.~S. Nayak and A.~C. Anilkumar.
+\newblock {\em EEG Normal Waveforms}.
+\newblock StatPearls Publishing, Treasure Island (FL), updated 2023 jul 24 edition, 2023.
+\newblock In: StatPearls [Internet]. Available from: \url{https://www.ncbi.nlm.nih.gov/books/NBK539805/}.
+
+\bibitem{Acharya2014}
+Jayant~N. Acharya, Abeer Hani, Janna Cheek, Partha Thirumala, and Tammy~N. Tsuchida.
+\newblock Guidelines for standard electrode position nomenclature.
+\newblock {\em Journal of Clinical Neurophysiology}, 31(1):1--26, 2014.
+\newblock Basado en normativas del sistema 10--20.
+
+\bibitem{Afify2025}
+Heba~M. Afify, Kamel~K. Mohammed, and Aboul~Ella Hassanien.
+\newblock Stress detection based eeg under varying cognitive tasks using convolution neural network.
+\newblock {\em Neural Computing and Applications}, 2025.
+
+\bibitem{Shikha2025}
+Shikha Shikha, Divyashikha Sethia, and S.~Indu.
+\newblock Ensemble classifier for eeg-based stress classification: An empirical study on stacking classifiers.
+\newblock In {\em Proceedings of Third International Conference on Computational Electronics for Wireless Communications}, volume 959 of {\em Lecture Notes in Networks and Systems}. Springer, 2025.
+
+\bibitem{SAM40Figshare2021}
+BCI Lab, Rajdeep Ghosh, Nabamita Deb, Kaushik Sengupta, Anurag Phukan, Nitin Choudhury, et~al.
+\newblock Sam 40: Dataset of 40 subject eeg recordings to monitor the induced-stress while performing stroop color-word test, arithmetic task, and mirror image recognition task, 2021.
+\newblock Dataset.
+
+\bibitem{Bradley1994}
+Margaret~M. Bradley and Peter~J. Lang.
+\newblock Measuring emotion: The self-assessment manikin and the semantic differential.
+\newblock {\em Journal of Behavior Therapy and Experimental Psychiatry}, 25(1):49--59, 1994.
+
+\bibitem{Fisher1936}
+Ronald~A. Fisher.
+\newblock The use of multiple measurements in taxonomic problems.
+\newblock {\em Annals of Eugenics}, 7(2):179--188, 1936.
+
+\bibitem{Shannon1948}
+Claude~E. Shannon.
+\newblock A mathematical theory of communication.
+\newblock {\em Bell System Technical Journal}, 27(3):379--423, 1948.
+
+\bibitem{CoverThomas2006}
+Thomas~M. Cover and Joy~A. Thomas.
+\newblock {\em Elements of Information Theory}.
+\newblock Wiley-Interscience, Hoboken, NJ, 2nd edition, 2006.
+
+\bibitem{Peng2005}
+Hanchuan Peng, Fuhui Long, and Chris Ding.
+\newblock Feature selection based on mutual information: criteria of max-dependency, max-relevance, and min-redundancy.
+\newblock {\em IEEE Transactions on Pattern Analysis and Machine Intelligence}, 27(8):1226--1238, 2005.
+
+\bibitem{Breiman2001}
+Leo Breiman.
+\newblock Random forests.
+\newblock {\em Machine Learning}, 45(1):5--32, 2001.
+
+\bibitem{Breiman1984}
+Leo Breiman, Jerome~H. Friedman, Richard~A. Olshen, and Charles~J. Stone.
+\newblock {\em Classification and Regression Trees}.
+\newblock Wadsworth International Group, Belmont, CA, 1984.
+
+\bibitem{Cortes1995}
+Corinna Cortes and Vladimir Vapnik.
+\newblock Support-vector networks.
+\newblock {\em Machine Learning}, 20(3):273--297, 1995.
+
+\bibitem{Goodfellow2016}
+Ian Goodfellow, Yoshua Bengio, and Aaron Courville.
+\newblock {\em Deep Learning}.
+\newblock MIT Press, 2016.
+\newblock \url{http://www.deeplearningbook.org}.
+
+\end{thebibliography}

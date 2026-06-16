@@ -1,0 +1,21 @@
+Top,Clasificador,Clase,Exactitud,Sensibilidad,Especificidad
+Top 20,DT,Clase 0,0.744,0.94,0.595
+Top 20,DT,Clase 1,0.744,0.595,0.94
+Top 20,RF,Clase 0,0.816,0.821,0.812
+Top 20,RF,Clase 1,0.816,0.812,0.821
+Top 20,KNN,Clase 0,0.697,0.906,0.539
+Top 20,KNN,Clase 1,0.697,0.539,0.906
+Top 20,SVM,Clase 0,0.808,0.899,0.739
+Top 20,SVM,Clase 1,0.808,0.739,0.899
+Top 20,XGB,Clase 0,0.799,0.872,0.744
+Top 20,XGB,Clase 1,0.799,0.744,0.872
+Top 15,DT,Clase 0,0.745,0.943,0.596
+Top 15,DT,Clase 1,0.745,0.596,0.943
+Top 15,RF,Clase 0,0.811,0.831,0.795
+Top 15,RF,Clase 1,0.811,0.795,0.831
+Top 15,KNN,Clase 0,0.726,0.892,0.601
+Top 15,KNN,Clase 1,0.726,0.601,0.892
+Top 15,SVM,Clase 0,0.805,0.903,0.73
+Top 15,SVM,Clase 1,0.805,0.73,0.903
+Top 15,XGB,Clase 0,0.805,0.876,0.751
+Top 15,XGB,Clase 1,0.805,0.751,0.876

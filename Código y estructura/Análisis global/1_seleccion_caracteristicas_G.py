@@ -128,7 +128,7 @@ def main():
     df = pd.read_parquet(archivo_entrada)
     progreso.update(1)
     
-    df = df[(df['Puntaje'] == 0) | (df['Puntaje'] >= 5)].copy()
+    df = df[(df['Puntaje'] == 0) | (df['Puntaje'] >= 1)].copy()
     y = df['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
     grupos = df['Sujeto'].values
     
