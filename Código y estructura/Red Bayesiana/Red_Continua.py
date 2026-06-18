@@ -175,7 +175,8 @@ def main():
             y_holdout_pred_pc = (pred_pc['Ansiedad'].values >= 0.5).astype(int)
         except Exception:
             y_holdout_pred_pc = (np.repeat(df_dev_sub['Ansiedad'].mean(), len(df_holdout_sub)) >= 0.5).astype(int)
-            
+
+        # 8 sujetos de validacion externa     
         y_holdout_real = df_holdout_sub['Ansiedad'].values.astype(int)
         test_acc_pc = accuracy_score(y_holdout_real, y_holdout_pred_pc)
         test_prec_pc = precision_score(y_holdout_real, y_holdout_pred_pc, zero_division=0)
@@ -226,7 +227,8 @@ def main():
             y_holdout_pred_ges = (pred_ges['Ansiedad'].values >= 0.5).astype(int)
         except Exception:
             y_holdout_pred_ges = (np.repeat(df_dev_sub['Ansiedad'].mean(), len(df_holdout_sub)) >= 0.5).astype(int)
-            
+
+        # 8 sujetos de validacion externa    
         test_acc_ges = accuracy_score(y_holdout_real, y_holdout_pred_ges)
         test_prec_ges = precision_score(y_holdout_real, y_holdout_pred_ges, zero_division=0)
         test_sens_ges = recall_score(y_holdout_real, y_holdout_pred_ges, zero_division=0)

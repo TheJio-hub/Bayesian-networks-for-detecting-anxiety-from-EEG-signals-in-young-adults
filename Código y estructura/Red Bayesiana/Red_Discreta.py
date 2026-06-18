@@ -127,7 +127,7 @@ def main():
     df_datos = df_datos[(df_datos['Puntaje'] == 0) | (df_datos['Puntaje'] >= 1)].copy()
     df_datos['Ansiedad'] = df_datos['Puntaje'].apply(lambda x: 0 if x == 0 else 1)
     
-    # Partición 80/20 por Sujetos (32 Desarrollo, 8 Test Externo)
+    # Partición 80/20
     unique_subjects = np.sort(df_datos['Sujeto'].unique())
     np.random.seed(42)
     shuffled_subjects = np.random.permutation(unique_subjects)
@@ -148,12 +148,12 @@ def main():
     top_tamanos = [10, 15]
     resultados_loso = []
     
-    # 2. Bucle de Validación Cruzada LOSO
+    # Bucle de Validación Cruzada LOSO
     for n_bins in bins_tamanos:
         for n_features in top_tamanos:
             features = mejores_caracteristicas[:n_features]
             
-            # PC: Validación en Dev
+            # PC: Validación 
             y_real_pc, y_pred_pc = ejecutar_loso(df_dev, features, 'Ansiedad', grupos_dev, "PC", n_bins)
             
             val_acc_pc = accuracy_score(y_real_pc, y_pred_pc)
@@ -164,7 +164,7 @@ def main():
             tn_pc, fp_pc, _, _ = cm_pc.ravel()
             val_spec_pc = tn_pc / (tn_pc + fp_pc) if (tn_pc + fp_pc) > 0 else 0.0
             
-            # PC: Test en Holdout
+            # PC: Test 
             discretizer_pc = KBinsDiscretizer(n_bins=n_bins, encode='ordinal', strategy='quantile')
             
             dev_features_disc = discretizer_pc.fit_transform(df_dev[features])
@@ -189,6 +189,7 @@ def main():
             except Exception:
                 y_holdout_pred_pc = np.repeat(df_dev_disc['Ansiedad'].mode().values[0], len(df_holdout_disc))
                 
+            # 8 sujetos de validacion externa     
             y_holdout_real = df_holdout['Ansiedad'].values.astype(int)
             test_acc_pc = accuracy_score(y_holdout_real, y_holdout_pred_pc)
             test_prec_pc = precision_score(y_holdout_real, y_holdout_pred_pc, zero_division=0)
@@ -214,7 +215,7 @@ def main():
                 'Test_F1_Score': test_f1_pc
             })
             
-            # HC: Validación en Dev
+            # HC: Validación
             y_real_hc, y_pred_hc = ejecutar_loso(df_dev, features, 'Ansiedad', grupos_dev, "HC", n_bins)
             
             val_acc_hc = accuracy_score(y_real_hc, y_pred_hc)
@@ -225,7 +226,7 @@ def main():
             tn_hc, fp_hc, _, _ = cm_hc.ravel()
             val_spec_hc = tn_hc / (tn_hc + fp_hc) if (tn_hc + fp_hc) > 0 else 0.0
             
-            # HC: Test en Holdout
+            # HC: Test
             try:
                 hc_final = HillClimbSearch(scoring_method=BIC(df_dev_disc), show_progress=False)
                 hc_final.fit(df_dev_disc)
@@ -239,7 +240,7 @@ def main():
                 y_holdout_pred_hc = pred_hc['Ansiedad'].values.astype(int)
             except Exception:
                 y_holdout_pred_hc = np.repeat(df_dev_disc['Ansiedad'].mode().values[0], len(df_holdout_disc))
-                
+            # 8 sujetos de validacion externa    
             test_acc_hc = accuracy_score(y_holdout_real, y_holdout_pred_hc)
             test_prec_hc = precision_score(y_holdout_real, y_holdout_pred_hc, zero_division=0)
             test_sens_hc = recall_score(y_holdout_real, y_holdout_pred_hc, zero_division=0)
