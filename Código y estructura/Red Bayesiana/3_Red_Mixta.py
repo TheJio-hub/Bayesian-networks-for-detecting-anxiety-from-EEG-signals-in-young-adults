@@ -113,6 +113,20 @@ def graficar_dag(dag, titulo, nombre_archivo):
     plt.savefig(nombre_archivo, dpi=300)
     plt.close()
 
+def split_ansiedad_into_three(df_ansiedad, n_control, seed=42):
+    df_ansiedad_shuffled = df_ansiedad.sample(frac=1.0, random_state=seed)
+    sub_A = df_ansiedad_shuffled.iloc[0:n_control]
+    sub_B = df_ansiedad_shuffled.iloc[n_control:2*n_control]
+    n_remaining = len(df_ansiedad_shuffled) - 2 * n_control
+    remaining = df_ansiedad_shuffled.iloc[2*n_control:]
+    if n_remaining < n_control:
+        n_to_fill = n_control - n_remaining
+        fill = df_ansiedad_shuffled.iloc[0:2*n_control].sample(n=n_to_fill, replace=False, random_state=seed+1)
+        sub_C = pd.concat([remaining, fill])
+    else:
+        sub_C = remaining.iloc[0:n_control]
+    return sub_A, sub_B, sub_C
+
 def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, grupos, algoritmo):
     particion_grupos = LeaveOneGroupOut()
     y_real = df_datos[columna_objetivo].values
@@ -139,7 +153,6 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
         
         global CALL_COUNTER
         CALL_COUNTER = 0
-        
         try:
             if algoritmo == "PC":
                 estimador = PC(
@@ -165,16 +178,35 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
             if len(manta_markov) == 0:
                 raise ValueError("Manta de Markov vacía")
 
-            clf = LogisticRegression(class_weight='balanced', random_state=42)
-            clf.fit(df_entrenamiento[manta_markov], df_entrenamiento[columna_objetivo])
+            df_control = df_entrenamiento[df_entrenamiento[columna_objetivo] == 0]
+            df_ansiedad = df_entrenamiento[df_entrenamiento[columna_objetivo] == 1]
             
-            predicciones = clf.predict(df_prueba[manta_markov])
-            y_pred[indices_prueba] = predicciones
+            n_control = len(df_control)
+            df_ansiedad_A, df_ansiedad_B, df_ansiedad_C = split_ansiedad_into_three(df_ansiedad, n_control, seed=42)
+            
+            df_train_A = pd.concat([df_control, df_ansiedad_A])
+            df_train_B = pd.concat([df_control, df_ansiedad_B])
+            df_train_C = pd.concat([df_control, df_ansiedad_C])
+            
+            clf_A = LogisticRegression(random_state=42)
+            clf_A.fit(df_train_A[manta_markov], df_train_A[columna_objetivo])
+            prob_A = clf_A.predict_proba(df_prueba[manta_markov])[:, 1]
+            
+            clf_B = LogisticRegression(random_state=42)
+            clf_B.fit(df_train_B[manta_markov], df_train_B[columna_objetivo])
+            prob_B = clf_B.predict_proba(df_prueba[manta_markov])[:, 1]
+            
+            clf_C = LogisticRegression(random_state=42)
+            clf_C.fit(df_train_C[manta_markov], df_train_C[columna_objetivo])
+            prob_C = clf_C.predict_proba(df_prueba[manta_markov])[:, 1]
+            
+            y_pred[indices_prueba] = (prob_A + prob_B + prob_C) / 3.0
             
         except Exception:
-            y_pred[indices_prueba] = df_entrenamiento[columna_objetivo].mode().values[0]
+            y_pred[indices_prueba] = df_entrenamiento[columna_objetivo].mean()
             
-    y_pred_bin = y_pred.astype(int)
+    umbral = 0.50
+    y_pred_bin = (y_pred >= umbral).astype(int)
     y_real_bin = y_real.astype(int)
     
     return y_real_bin, y_pred_bin
@@ -262,14 +294,32 @@ def principal():
                     manta_markov_final = dag_final.get_markov_blanket('Ansiedad')
                 else:
                     manta_markov_final = []
-                    
                 if len(manta_markov_final) == 0:
                     raise ValueError("Manta de Markov vacía")
-                    
-                clf_final = LogisticRegression(class_weight='balanced', random_state=42)
-                clf_final.fit(df_desarrollo_sub[manta_markov_final], df_desarrollo_sub['Ansiedad'])
+
+                df_control_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 0]
+                df_ansiedad_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 1]
                 
-                y_prueba_externa_pred = clf_final.predict(df_prueba_externa_sub[manta_markov_final])
+                n_control_final = len(df_control_final)
+                df_ansiedad_final_A, df_ansiedad_final_B, df_ansiedad_final_C = split_ansiedad_into_three(df_ansiedad_final, n_control_final, seed=42)
+                
+                df_train_final_A = pd.concat([df_control_final, df_ansiedad_final_A])
+                df_train_final_B = pd.concat([df_control_final, df_ansiedad_final_B])
+                df_train_final_C = pd.concat([df_control_final, df_ansiedad_final_C])
+                
+                clf_final_A = LogisticRegression(random_state=42)
+                clf_final_A.fit(df_train_final_A[manta_markov_final], df_train_final_A['Ansiedad'])
+                prob_test_A = clf_final_A.predict_proba(df_prueba_externa_sub[manta_markov_final])[:, 1]
+                
+                clf_final_B = LogisticRegression(random_state=42)
+                clf_final_B.fit(df_train_final_B[manta_markov_final], df_train_final_B['Ansiedad'])
+                prob_test_B = clf_final_B.predict_proba(df_prueba_externa_sub[manta_markov_final])[:, 1]
+                
+                clf_final_C = LogisticRegression(random_state=42)
+                clf_final_C.fit(df_train_final_C[manta_markov_final], df_train_final_C['Ansiedad'])
+                prob_test_C = clf_final_C.predict_proba(df_prueba_externa_sub[manta_markov_final])[:, 1]
+                
+                y_prueba_externa_pred = (((prob_test_A + prob_test_B + prob_test_C) / 3.0) >= 0.50).astype(int)
             except Exception:
                 y_prueba_externa_pred = np.repeat(df_desarrollo_sub['Ansiedad'].mode().values[0], len(df_prueba_externa_sub))
                 

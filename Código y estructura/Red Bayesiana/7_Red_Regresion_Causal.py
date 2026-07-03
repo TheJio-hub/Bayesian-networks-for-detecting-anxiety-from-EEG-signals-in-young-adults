@@ -128,6 +128,20 @@ def graficar_dag(dag, titulo, nombre_archivo):
     plt.savefig(nombre_archivo, dpi=300)
     plt.close()
 
+def split_ansiedad_into_three(df_ansiedad, n_control, seed=42):
+    df_ansiedad_shuffled = df_ansiedad.sample(frac=1.0, random_state=seed)
+    sub_A = df_ansiedad_shuffled.iloc[0:n_control]
+    sub_B = df_ansiedad_shuffled.iloc[n_control:2*n_control]
+    n_remaining = len(df_ansiedad_shuffled) - 2 * n_control
+    remaining = df_ansiedad_shuffled.iloc[2*n_control:]
+    if n_remaining < n_control:
+        n_to_fill = n_control - n_remaining
+        fill = df_ansiedad_shuffled.iloc[0:2*n_control].sample(n=n_to_fill, replace=False, random_state=seed+1)
+        sub_C = pd.concat([remaining, fill])
+    else:
+        sub_C = remaining.iloc[0:n_control]
+    return sub_A, sub_B, sub_C
+
 def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, grupos, algoritmo):
     particion_grupos = LeaveOneGroupOut()
     y_real = df_datos[columna_objetivo].values
@@ -177,16 +191,54 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
             if causal_graph_model is None or len(causal_graph_model.edges()) == 0:
                 raise ValueError("Grafo causal sin relaciones suficientes")
                 
-            regressor = NaiveAdjustmentRegressor(causal_graph=causal_graph_model)
-            regressor.fit(df_entrenamiento[mb_features], df_entrenamiento[columna_objetivo])
+            df_control = df_entrenamiento[df_entrenamiento[columna_objetivo] == 0]
+            df_ansiedad = df_entrenamiento[df_entrenamiento[columna_objetivo] == 1]
             
-            predicciones = regressor.predict(df_prueba[mb_features])
-            y_pred[indices_prueba] = predicciones
+            n_control = len(df_control)
+            df_ansiedad_A, df_ansiedad_B, df_ansiedad_C = split_ansiedad_into_three(df_ansiedad, n_control, seed=42)
+            
+            df_train_A = pd.concat([df_control, df_ansiedad_A])
+            df_train_B = pd.concat([df_control, df_ansiedad_B])
+            df_train_C = pd.concat([df_control, df_ansiedad_C])
+            
+            pred_A = None
+            pred_B = None
+            pred_C = None
+            
+            # Model A
+            try:
+                regressor_A = NaiveAdjustmentRegressor(causal_graph=causal_graph_model)
+                regressor_A.fit(df_train_A[mb_features], df_train_A[columna_objetivo])
+                pred_A = regressor_A.predict(df_prueba[mb_features])
+            except Exception:
+                pass
+                
+            # Model B
+            try:
+                regressor_B = NaiveAdjustmentRegressor(causal_graph=causal_graph_model)
+                regressor_B.fit(df_train_B[mb_features], df_train_B[columna_objetivo])
+                pred_B = regressor_B.predict(df_prueba[mb_features])
+            except Exception:
+                pass
+
+            # Model C
+            try:
+                regressor_C = NaiveAdjustmentRegressor(causal_graph=causal_graph_model)
+                regressor_C.fit(df_train_C[mb_features], df_train_C[columna_objetivo])
+                pred_C = regressor_C.predict(df_prueba[mb_features])
+            except Exception:
+                pass
+                
+            preds_validas = [p for p in [pred_A, pred_B, pred_C] if p is not None]
+            if len(preds_validas) > 0:
+                y_pred[indices_prueba] = np.mean(preds_validas, axis=0)
+            else:
+                y_pred[indices_prueba] = df_entrenamiento[columna_objetivo].mean()
             
         except Exception:
             y_pred[indices_prueba] = df_entrenamiento[columna_objetivo].mean()
             
-    umbral = y_real.mean()
+    umbral = 0.50
     y_pred_bin = (y_pred >= umbral).astype(int)
     y_real_bin = y_real.astype(int)
     
@@ -268,15 +320,52 @@ def principal():
                 if causal_model_final is None or len(causal_model_final.edges()) == 0:
                     raise ValueError("Grafo causal final vacío")
                     
-                regressor_final = NaiveAdjustmentRegressor(causal_graph=causal_model_final)
-                regressor_final.fit(df_desarrollo_sub[mb_features_final], df_desarrollo_sub['Ansiedad'])
+                df_control_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 0]
+                df_ansiedad_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 1]
                 
-                umbral_holdout = df_desarrollo_sub['Ansiedad'].mean()
-                predicciones_test = regressor_final.predict(df_prueba_externa_sub[mb_features_final])
-                y_prueba_externa_pred = (predicciones_test >= umbral_holdout).astype(int)
+                n_control_final = len(df_control_final)
+                df_ansiedad_final_A, df_ansiedad_final_B, df_ansiedad_final_C = split_ansiedad_into_three(df_ansiedad_final, n_control_final, seed=42)
+                
+                df_train_final_A = pd.concat([df_control_final, df_ansiedad_final_A])
+                df_train_final_B = pd.concat([df_control_final, df_ansiedad_final_B])
+                df_train_final_C = pd.concat([df_control_final, df_ansiedad_final_C])
+                
+                pred_test_A = None
+                pred_test_B = None
+                pred_test_C = None
+                
+                # Model A
+                try:
+                    regressor_final_A = NaiveAdjustmentRegressor(causal_graph=causal_model_final)
+                    regressor_final_A.fit(df_train_final_A[mb_features_final], df_train_final_A['Ansiedad'])
+                    pred_test_A = regressor_final_A.predict(df_prueba_externa_sub[mb_features_final])
+                except Exception:
+                    pass
+                    
+                # Model B
+                try:
+                    regressor_final_B = NaiveAdjustmentRegressor(causal_graph=causal_model_final)
+                    regressor_final_B.fit(df_train_final_B[mb_features_final], df_train_final_B['Ansiedad'])
+                    pred_test_B = regressor_final_B.predict(df_prueba_externa_sub[mb_features_final])
+                except Exception:
+                    pass
+
+                # Model C
+                try:
+                    regressor_final_C = NaiveAdjustmentRegressor(causal_graph=causal_model_final)
+                    regressor_final_C.fit(df_train_final_C[mb_features_final], df_train_final_C['Ansiedad'])
+                    pred_test_C = regressor_final_C.predict(df_prueba_externa_sub[mb_features_final])
+                except Exception:
+                    pass
+                    
+                preds_test_validas = [p for p in [pred_test_A, pred_test_B, pred_test_C] if p is not None]
+                if len(preds_test_validas) > 0:
+                    prob_final_test = np.mean(preds_test_validas, axis=0)
+                    y_prueba_externa_pred = (prob_final_test >= 0.50).astype(int)
+                else:
+                    y_prueba_externa_pred = np.zeros(len(df_prueba_externa_sub))
             except Exception:
-                umbral_holdout = df_desarrollo_sub['Ansiedad'].mean()
-                y_prueba_externa_pred = (np.repeat(df_desarrollo_sub['Ansiedad'].mean(), len(df_prueba_externa_sub)) >= umbral_holdout).astype(int)
+                y_prueba_externa_pred = np.zeros(len(df_prueba_externa_sub))
                 
             cs_val = np.nan
             fisher_p = np.nan

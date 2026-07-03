@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from tqdm.auto import tqdm as _tqdm
 from sklearn.model_selection import LeaveOneGroupOut
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_curve
 from pgmpy.causal_discovery import GES, PC
 from pgmpy.models import LinearGaussianBayesianNetwork
 from pgmpy.metrics import CorrelationScore, FisherC
@@ -95,6 +95,20 @@ def graficar_dag(dag, titulo, nombre_archivo):
     plt.savefig(nombre_archivo, dpi=300)
     plt.close()
 
+def split_ansiedad_into_three(df_ansiedad, n_control, seed=42):
+    df_ansiedad_shuffled = df_ansiedad.sample(frac=1.0, random_state=seed)
+    sub_A = df_ansiedad_shuffled.iloc[0:n_control]
+    sub_B = df_ansiedad_shuffled.iloc[n_control:2*n_control]
+    n_remaining = len(df_ansiedad_shuffled) - 2 * n_control
+    remaining = df_ansiedad_shuffled.iloc[2*n_control:]
+    if n_remaining < n_control:
+        n_to_fill = n_control - n_remaining
+        fill = df_ansiedad_shuffled.iloc[0:2*n_control].sample(n=n_to_fill, replace=False, random_state=seed+1)
+        sub_C = pd.concat([remaining, fill])
+    else:
+        sub_C = remaining.iloc[0:n_control]
+    return sub_A, sub_B, sub_C
+
 def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, grupos, algoritmo):
     particion_grupos = LeaveOneGroupOut()
     y_real = df_datos[columna_objetivo].values
@@ -116,47 +130,90 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
         df_entrenamiento = datos_loso.iloc[indices_entrenamiento]
         df_prueba = datos_loso.iloc[indices_prueba]
         
+        df_control = df_entrenamiento[df_entrenamiento[columna_objetivo] == 0.0]
+        df_ansiedad = df_entrenamiento[df_entrenamiento[columna_objetivo] == 1.0]
+        
+        n_control = len(df_control)
+        df_ansiedad_A, df_ansiedad_B, df_ansiedad_C = split_ansiedad_into_three(df_ansiedad, n_control, seed=42)
+        
+        df_train_A = pd.concat([df_control, df_ansiedad_A])
+        df_train_B = pd.concat([df_control, df_ansiedad_B])
+        df_train_C = pd.concat([df_control, df_ansiedad_C])
+        
+        pred_A = None
+        pred_B = None
+        pred_C = None
+        X_prueba = df_prueba.drop(columns=[columna_objetivo])
+        
         global CALL_COUNTER
-        CALL_COUNTER = 0
         
         try:
+            CALL_COUNTER = 0
             if algoritmo == "PC":
-                estimador = PC(
-                    variant='stable', 
-                    ci_test='fisher_z', 
-                    significance_level=0.05, 
-                    return_type='dag', 
-                    show_progress=False
-                )
-                estimador.fit(df_entrenamiento)
-                dag = estimador.causal_graph_
+                estimador_A = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
+                estimador_A.fit(df_train_A)
+                dag_A = estimador_A.causal_graph_
             else:
-                estimador = GES(
-                    scoring_method='bic-g', 
-                    return_type='dag'
-                )
-                estimador.fit(df_entrenamiento)
-                dag = estimador.causal_graph_
+                estimador_A = GES(scoring_method='bic-g', return_type='dag')
+                estimador_A.fit(df_train_A)
+                dag_A = estimador_A.causal_graph_
             
-            if len(dag.edges()) == 0:
-                raise ValueError("Grafo vacío")
-
-            modelo = LinearGaussianBayesianNetwork(dag.edges())
-            modelo.add_nodes_from(dag.nodes())
-            modelo.fit(df_entrenamiento)
-            
-            X_prueba = df_prueba.drop(columns=[columna_objetivo])
-            predicciones = modelo.predict(X_prueba)
-            y_pred[indices_prueba] = predicciones[columna_objetivo].values
-            
+            if len(dag_A.edges()) > 0:
+                modelo_A = LinearGaussianBayesianNetwork(dag_A.edges())
+                modelo_A.add_nodes_from(dag_A.nodes())
+                modelo_A.fit(df_train_A)
+                pred_A = modelo_A.predict(X_prueba)[columna_objetivo].values
         except Exception:
-            y_pred[indices_prueba] = df_entrenamiento[columna_objetivo].mean()
+            pass
             
-    umbral = y_real.mean()
-    y_pred_bin = (y_pred >= umbral).astype(int)
+        try:
+            CALL_COUNTER = 0
+            if algoritmo == "PC":
+                estimador_B = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
+                estimador_B.fit(df_train_B)
+                dag_B = estimador_B.causal_graph_
+            else:
+                estimador_B = GES(scoring_method='bic-g', return_type='dag')
+                estimador_B.fit(df_train_B)
+                dag_B = estimador_B.causal_graph_
+            
+            if len(dag_B.edges()) > 0:
+                modelo_B = LinearGaussianBayesianNetwork(dag_B.edges())
+                modelo_B.add_nodes_from(dag_B.nodes())
+                modelo_B.fit(df_train_B)
+                pred_B = modelo_B.predict(X_prueba)[columna_objetivo].values
+        except Exception:
+            pass
+
+        try:
+            CALL_COUNTER = 0
+            if algoritmo == "PC":
+                estimador_C = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
+                estimador_C.fit(df_train_C)
+                dag_C = estimador_C.causal_graph_
+            else:
+                estimador_C = GES(scoring_method='bic-g', return_type='dag')
+                estimador_C.fit(df_train_C)
+                dag_C = estimador_C.causal_graph_
+            
+            if len(dag_C.edges()) > 0:
+                modelo_C = LinearGaussianBayesianNetwork(dag_C.edges())
+                modelo_C.add_nodes_from(dag_C.nodes())
+                modelo_C.fit(df_train_C)
+                pred_C = modelo_C.predict(X_prueba)[columna_objetivo].values
+        except Exception:
+            pass
+            
+        preds_validas = [p for p in [pred_A, pred_B, pred_C] if p is not None]
+        if len(preds_validas) > 0:
+            y_pred[indices_prueba] = np.mean(preds_validas, axis=0)
+        else:
+            y_pred[indices_prueba] = df_entrenamiento[columna_objetivo].mean()
+    umbral_optimo = 0.50
+    y_pred_bin = (y_pred >= umbral_optimo).astype(int)
     y_real_bin = y_real.astype(int)
     
-    return y_real_bin, y_pred_bin
+    return y_real_bin, y_pred_bin, umbral_optimo
 
 def principal():
     dir_resultados = os.path.join('Resultados', 'Red Bayesiana', 'Continua')
@@ -188,14 +245,14 @@ def principal():
     df_ranking = df_ranking.sort_values(by=['Importancia_DT', 'Mutual_Info'], ascending=[False, False])
     mejores_caracteristicas = df_ranking['Caracteristica'].tolist()
     
-    tamanos_top = [10, 15, 20]
+    tamanos_top = [10, 15]
     resultados_loso = []
     
     for n_caracteristicas in tamanos_top:
         caracteristicas = mejores_caracteristicas[:n_caracteristicas]
         
         for algoritmo in ["PC", "GES"]:
-            y_real_val, y_pred_val = ejecutar_loso(df_desarrollo, caracteristicas, 'Ansiedad', grupos_desarrollo, algoritmo)
+            y_real_val, y_pred_val, umbral_optimo = ejecutar_loso(df_desarrollo, caracteristicas, 'Ansiedad', grupos_desarrollo, algoritmo)
             
             val_acc = accuracy_score(y_real_val, y_pred_val)
             val_prec = precision_score(y_real_val, y_pred_val, zero_division=0)
@@ -209,47 +266,104 @@ def principal():
             df_desarrollo_sub = df_desarrollo[columnas_desarrollo].copy().apply(pd.to_numeric, errors='coerce').fillna(0)
             df_prueba_externa_sub = df_prueba_externa[columnas_desarrollo].copy().apply(pd.to_numeric, errors='coerce').fillna(0)
             
-            dag_final = None
-            global CALL_COUNTER
-            CALL_COUNTER = 0
+            df_control_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 0.0]
+            df_ansiedad_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 1.0]
+            
+            n_control_final = len(df_control_final)
+            df_ansiedad_final_A, df_ansiedad_final_B, df_ansiedad_final_C = split_ansiedad_into_three(df_ansiedad_final, n_control_final, seed=42)
+            
+            df_train_final_A = pd.concat([df_control_final, df_ansiedad_final_A])
+            df_train_final_B = pd.concat([df_control_final, df_ansiedad_final_B])
+            df_train_final_C = pd.concat([df_control_final, df_ansiedad_final_C])
+            
+            dag_final_A = None
+            dag_final_B = None
+            dag_final_C = None
+            pred_test_A = None
+            pred_test_B = None
+            pred_test_C = None
+            X_test = df_prueba_externa_sub.drop(columns=['Ansiedad'])
             
             try:
+                global CALL_COUNTER
+                CALL_COUNTER = 0
                 if algoritmo == "PC":
-                    est_final = PC(variant='stable', ci_test='pearsonr', significance_level=0.05, return_type='dag', show_progress=False)
-                    est_final.fit(df_desarrollo_sub)
-                    dag_final = est_final.causal_graph_
+                    est_final_A = PC(variant='stable', ci_test='pearsonr', significance_level=0.05, return_type='dag', show_progress=False)
+                    est_final_A.fit(df_train_final_A)
+                    dag_final_A = est_final_A.causal_graph_
                 else:
-                    est_final = GES(scoring_method='bic-g', return_type='dag')
-                    est_final.fit(df_desarrollo_sub)
-                    dag_final = est_final.causal_graph_
+                    est_final_A = GES(scoring_method='bic-g', return_type='dag')
+                    est_final_A.fit(df_train_final_A)
+                    dag_final_A = est_final_A.causal_graph_
+                
+                if len(dag_final_A.edges()) > 0:
+                    modelo_final_A = LinearGaussianBayesianNetwork(dag_final_A.edges())
+                    modelo_final_A.add_nodes_from(dag_final_A.nodes())
+                    modelo_final_A.fit(df_train_final_A)
+                    pred_test_A = modelo_final_A.predict(X_test)['Ansiedad'].values
             except Exception:
-                dag_final = None
+                pass
                 
             try:
-                if dag_final is None or len(dag_final.edges()) == 0:
-                    raise ValueError("Grafo vacío")
-                    
-                modelo_final = LinearGaussianBayesianNetwork(dag_final.edges())
-                modelo_final.add_nodes_from(dag_final.nodes())
-                modelo_final.fit(df_desarrollo_sub)
+                CALL_COUNTER = 0
+                if algoritmo == "PC":
+                    est_final_B = PC(variant='stable', ci_test='pearsonr', significance_level=0.05, return_type='dag', show_progress=False)
+                    est_final_B.fit(df_train_final_B)
+                    dag_final_B = est_final_B.causal_graph_
+                else:
+                    est_final_B = GES(scoring_method='bic-g', return_type='dag')
+                    est_final_B.fit(df_train_final_B)
+                    dag_final_B = est_final_B.causal_graph_
                 
-                umbral_holdout = df_desarrollo_sub['Ansiedad'].mean()
-                predicciones_test = modelo_final.predict(df_prueba_externa_sub.drop(columns=['Ansiedad']))
-                y_prueba_externa_pred = (predicciones_test['Ansiedad'].values >= umbral_holdout).astype(int)
+                if len(dag_final_B.edges()) > 0:
+                    modelo_final_B = LinearGaussianBayesianNetwork(dag_final_B.edges())
+                    modelo_final_B.add_nodes_from(dag_final_B.nodes())
+                    modelo_final_B.fit(df_train_final_B)
+                    pred_test_B = modelo_final_B.predict(X_test)['Ansiedad'].values
             except Exception:
-                umbral_holdout = df_desarrollo_sub['Ansiedad'].mean()
-                y_prueba_externa_pred = (np.repeat(df_desarrollo_sub['Ansiedad'].mean(), len(df_prueba_externa_sub)) >= umbral_holdout).astype(int)
+                pass
+
+            try:
+                CALL_COUNTER = 0
+                if algoritmo == "PC":
+                    est_final_C = PC(variant='stable', ci_test='pearsonr', significance_level=0.05, return_type='dag', show_progress=False)
+                    est_final_C.fit(df_train_final_C)
+                    dag_final_C = est_final_C.causal_graph_
+                else:
+                    est_final_C = GES(scoring_method='bic-g', return_type='dag')
+                    est_final_C.fit(df_train_final_C)
+                    dag_final_C = est_final_C.causal_graph_
+                
+                if len(dag_final_C.edges()) > 0:
+                    modelo_final_C = LinearGaussianBayesianNetwork(dag_final_C.edges())
+                    modelo_final_C.add_nodes_from(dag_final_C.nodes())
+                    modelo_final_C.fit(df_train_final_C)
+                    pred_test_C = modelo_final_C.predict(X_test)['Ansiedad'].values
+            except Exception:
+                pass
+                
+            preds_test_validas = [p for p in [pred_test_A, pred_test_B, pred_test_C] if p is not None]
+            if len(preds_test_validas) > 0:
+                pred_final_test = np.mean(preds_test_validas, axis=0)
+                y_prueba_externa_pred = (pred_final_test >= umbral_optimo).astype(int)
+            else:
+                y_prueba_externa_pred = np.zeros(len(df_prueba_externa_sub))
                 
             cs_val = np.nan
             fisher_p = np.nan
             fisher_rmsea = np.nan
-            if dag_final is not None:
+            dag_eval = None
+            for d_ev in [dag_final_A, dag_final_B, dag_final_C]:
+                if d_ev is not None:
+                    dag_eval = d_ev
+                    break
+            if dag_eval is not None:
                 try:
-                    cs_val = CorrelationScore(ci_test='pearsonr', significance_level=0.05).evaluate(X=df_desarrollo_sub, causal_graph=dag_final)
+                    cs_val = CorrelationScore(ci_test='pearsonr', significance_level=0.05).evaluate(X=df_desarrollo_sub, causal_graph=dag_eval)
                 except Exception:
                     pass
                 try:
-                    fisher_p, fisher_rmsea = FisherC(ci_test='pearsonr', compute_rmsea=True, show_progress=False).evaluate(X=df_desarrollo_sub, causal_graph=dag_final)
+                    fisher_p, fisher_rmsea = FisherC(ci_test='pearsonr', compute_rmsea=True, show_progress=False).evaluate(X=df_desarrollo_sub, causal_graph=dag_eval)
                 except Exception:
                     pass
 
@@ -286,15 +400,33 @@ def principal():
                 'FisherC_RMSEA': fisher_rmsea
             })
             
-            if dag_final is not None:
+            if dag_final_A is not None:
                 try:
                     graficar_dag(
-                        dag_final, 
-                        f"Red Causal Continua ({alg_desc}, Top-{n_caracteristicas})", 
-                        os.path.join(dir_resultados, f"Estructura_Global_{algoritmo}_top{n_caracteristicas}.png")
+                        dag_final_A, 
+                        f"Red Continua A ({alg_desc}, Top-{n_caracteristicas})", 
+                        os.path.join(dir_resultados, f"Estructura_Global_{algoritmo}_top{n_caracteristicas}_A.png")
                     )
                 except Exception as e:
-                    print(f"Error graficando DAG {algoritmo} top {n_caracteristicas}: {e}")
+                    print(f"Error graficando DAG A {algoritmo} top {n_caracteristicas}: {e}")
+            if dag_final_B is not None:
+                try:
+                    graficar_dag(
+                        dag_final_B, 
+                        f"Red Continua B ({alg_desc}, Top-{n_caracteristicas})", 
+                        os.path.join(dir_resultados, f"Estructura_Global_{algoritmo}_top{n_caracteristicas}_B.png")
+                    )
+                except Exception as e:
+                    print(f"Error graficando DAG B {algoritmo} top {n_caracteristicas}: {e}")
+            if dag_final_C is not None:
+                try:
+                    graficar_dag(
+                        dag_final_C, 
+                        f"Red Continua C ({alg_desc}, Top-{n_caracteristicas})", 
+                        os.path.join(dir_resultados, f"Estructura_Global_{algoritmo}_top{n_caracteristicas}_C.png")
+                    )
+                except Exception as e:
+                    print(f"Error graficando DAG C {algoritmo} top {n_caracteristicas}: {e}")
 
     df_resultados = pd.DataFrame(resultados_loso)
     ruta_salida = os.path.join(dir_resultados, 'Resultados_Red_Continua.csv')
