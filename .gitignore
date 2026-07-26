@@ -1,5 +1,4 @@
 *.rar
-*.zip
 .venv
 __pycache__
 *.pdf
