@@ -12,8 +12,8 @@ from tqdm.auto import tqdm as _tqdm
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+from pgmpy.estimators import TreeSearch, BayesianEstimator
 from pgmpy.models import DiscreteBayesianNetwork
-from pgmpy.estimators import BayesianEstimator
 from pgmpy.metrics import CorrelationScore, FisherC
 
 def tqdm(*args, **kwargs):
@@ -41,18 +41,11 @@ def graficar_dag(dag, titulo, nombre_archivo):
     except Exception:
         pos = nx.spring_layout(G, seed=42, k=1.5)
     
-    colores_nodos = []
-    for nodo in G.nodes():
-        if nodo == 'Ansiedad':
-            colores_nodos.append('coral')
-        else:
-            colores_nodos.append('lightblue')
-            
     nx.draw_networkx_nodes(
         G, pos, 
-        node_color=colores_nodos, 
         node_size=1500, 
-        edgecolors='black',
+        node_color='lightgreen', 
+        edgecolors='darkgreen', 
         linewidths=1.5
     )
     nx.draw_networkx_labels(
@@ -101,7 +94,7 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
     barra_progreso = tqdm(
         particion_grupos.split(df_datos, y_real, grupos), 
         total=total_pliegues, 
-        desc=f"LOSO Naive Bayes (bins={n_intervalos})", 
+        desc=f"LOSO TAN (bins={n_intervalos})", 
         unit='fold', 
         leave=False
     )
@@ -121,10 +114,11 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
         df_prueba = pd.DataFrame(caracteristicas_prueba_disc, columns=caracteristicas_seleccionadas, index=df_prueba_crudo.index).astype(int)
         
         try:
-            # Naive Bayes has a fixed structure: C -> Feature_i
-            edges = [(columna_objetivo, feat) for feat in caracteristicas_seleccionadas]
-            dag = DiscreteBayesianNetwork(edges)
-            dag.add_nodes_from([columna_objetivo] + caracteristicas_seleccionadas)
+            est = TreeSearch(df_entrenamiento, root_node=caracteristicas_seleccionadas[0])
+            dag = est.estimate(estimator_type="tan", class_node=columna_objetivo, show_progress=False)
+            
+            if len(dag.edges()) == 0:
+                raise ValueError("Grafo vacío")
 
             df_control = df_entrenamiento[df_entrenamiento[columna_objetivo] == 0]
             df_ansiedad = df_entrenamiento[df_entrenamiento[columna_objetivo] == 1]
@@ -193,7 +187,7 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
     return y_real_bin, y_pred_bin
 
 def principal():
-    dir_resultados = os.path.join('Resultados', 'Red Bayesiana', 'Naive_Bayes')
+    dir_resultados = os.path.join('Resultados', 'Red Bayesiana', 'Global', 'TAN')
     os.makedirs(dir_resultados, exist_ok=True)
     
     archivo_datos = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
@@ -250,11 +244,17 @@ def principal():
             
             df_prueba_externa_disc = pd.DataFrame(caract_prueba_ext_disc, columns=caracteristicas, index=df_prueba_externa.index).astype(int)
             
-            edges_final = [('Ansiedad', feat) for feat in caracteristicas]
-            dag_final = DiscreteBayesianNetwork(edges_final)
-            dag_final.add_nodes_from(['Ansiedad'] + caracteristicas)
+            dag_final = None
+            try:
+                est_final = TreeSearch(df_desarrollo_disc, root_node=caracteristicas[0])
+                dag_final = est_final.estimate(estimator_type="tan", class_node="Ansiedad", show_progress=False)
+            except Exception:
+                dag_final = None
                 
             try:
+                if dag_final is None or len(dag_final.edges()) == 0:
+                    raise ValueError("Grafo vacío")
+                    
                 df_control_final = df_desarrollo_disc[df_desarrollo_disc['Ansiedad'] == 0]
                 df_ansiedad_final = df_desarrollo_disc[df_desarrollo_disc['Ansiedad'] == 1]
                 
@@ -337,24 +337,23 @@ def principal():
             val_bal_acc = (val_sens + val_spec) / 2
             test_bal_acc = (test_sens + test_spec) / 2
             
+            alg_desc = 'TAN (Tree Search)'
             resultados_loso.append({
-                'Algoritmo_Estructura': 'Naive Bayes',
+                'Estructura': alg_desc,
                 'n_bins': n_intervalos,
-                'Top_Features': n_caracteristicas,
-                'Val_Exactitud': val_acc,
-                'Val_Exactitud_Balanceada': val_bal_acc,
-                'Val_Precisión': val_prec,
-                'Val_Sensibilidad': val_sens,
-                'Val_Especificidad': val_spec,
-                'Val_F1_Score': val_f1,
-                'Test_Exactitud': test_acc,
-                'Test_Exactitud_Balanceada': test_bal_acc,
-                'Test_Precisión': test_prec,
-                'Test_Sensibilidad': test_sens,
-                'Test_Especificidad': test_spec,
-                'Test_F1_Score': test_f1,
-                'CorrelationScore': cs_val,
-                'FisherC_p_value': fisher_p,
+                'Top': n_caracteristicas,
+                'Exact. (Val)': val_acc,
+                'Exact. (Test)': test_acc,
+                'Prec. (Val)': val_prec,
+                'Prec. (Test)': test_prec,
+                'Sens. (Val)': val_sens,
+                'Sens. (Test)': test_sens,
+                'Esp. (Val)': val_spec,
+                'Esp. (Test)': test_spec,
+                'F1 (Val)': val_f1,
+                'F1 (Test)': test_f1,
+                'CS': cs_val,
+                'FisherC_p': fisher_p,
                 'FisherC_RMSEA': fisher_rmsea
             })
             
@@ -362,17 +361,17 @@ def principal():
                 try:
                     graficar_dag(
                         dag_final, 
-                        f"Red Naive Bayes (Top-{n_caracteristicas}, Bins-{n_intervalos})", 
-                        os.path.join(dir_resultados, f"Estructura_Global_NB_bins{n_intervalos}_top{n_caracteristicas}.png")
+                        f"Red Causal TAN (Top-{n_caracteristicas}, Bins-{n_intervalos})", 
+                        os.path.join(dir_resultados, f"Estructura_Global_TAN_top{n_caracteristicas}_bins{n_intervalos}.png")
                     )
                 except Exception as e:
-                    print(f"Error graficando DAG Naive Bayes top {n_caracteristicas}: {e}")
+                    print(f"Error graficando DAG TAN top {n_caracteristicas} bins {n_intervalos}: {e}")
 
-    df_resultados = pd.DataFrame(resultados_loso)
-    ruta_salida = os.path.join(dir_resultados, 'Resultados_Red_Naive_Bayes.csv')
+    df_resultados = pd.DataFrame(resultados_loso).round(4)
+    ruta_salida = os.path.join(dir_resultados, 'Resultados_Red_TAN.csv')
     df_resultados.to_csv(ruta_salida, index=False)
     
-    print("\n=== RESULTADOS RED CAUSAL NAIVE BAYES ===")
+    print("\n=== RESULTADOS RED CAUSAL TAN ===")
     print(df_resultados.to_string(index=False, float_format=lambda x: f'{x:.4f}'))
 
 if __name__ == "__main__":

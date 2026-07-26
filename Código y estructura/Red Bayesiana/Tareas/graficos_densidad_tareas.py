@@ -1,0 +1,91 @@
+import os
+import warnings
+warnings.filterwarnings('ignore')
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from tqdm.auto import tqdm as _tqdm
+
+def tqdm(*args, **kwargs):
+    kwargs.setdefault('mininterval', 1.5)
+    kwargs.setdefault('miniters', 1)
+    return _tqdm(*args, **kwargs)
+
+def principal():
+    archivo_datos = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
+    archivo_ranking = os.path.join('Resultados', 'Análisis global', 'Selección de características', 'Ranking_Multicriterio_Completo.csv')
+    
+    if not os.path.exists(archivo_datos) or not os.path.exists(archivo_ranking):
+        print("Error: No se encontraron los archivos necesarios en Resultados.")
+        return
+        
+    # Cargar datos
+    df_datos = pd.read_parquet(archivo_datos)
+    
+    # Cargar ranking y obtener las mejores características
+    df_ranking = pd.read_csv(archivo_ranking)
+    
+    # Top 5 de Decision Tree (Red Mixta)
+    top_dt = df_ranking.sort_values(by='Importancia_DT', ascending=False)['Caracteristica'].head(5).tolist()
+    
+    # Top 5 de mRMR (Regresión Causal)
+    top_mrmr = df_ranking.dropna(subset=['mRMR_40_Rank']).sort_values(by='mRMR_40_Rank', ascending=True)['Caracteristica'].head(5).tolist()
+    
+    # Combinar para obtener las características clave a graficar
+    mejores_features = list(dict.fromkeys(top_dt + top_mrmr))
+    print(f"Características clave para graficar densidades: {mejores_features}")
+    
+    sns.set_theme(style="whitegrid")
+    
+    tareas = ['Aritmetica', 'Espejo', 'Stroop']
+    
+    for tarea in tareas:
+        print(f"\nGenerando gráficos de densidad para la tarea: {tarea.upper()}")
+        dir_salida = os.path.join('Resultados', 'Red Bayesiana', 'Tareas', tarea, 'Densidades')
+        os.makedirs(dir_salida, exist_ok=True)
+        
+        # Filtrar datos de la tarea y Relajación
+        df_tarea = df_datos[df_datos['Tarea'].isin(['Relajacion', tarea])].copy()
+        df_tarea = df_tarea[(df_tarea['Puntaje'] == 0) | (df_tarea['Puntaje'] >= 1)].copy()
+        
+        # Etiquetar grupo (Relajación/Control vs Ansiedad)
+        df_tarea['Grupo'] = df_tarea['Puntaje'].apply(lambda x: 'Control' if x == 0 else 'Ansiedad')
+        
+        for feat in mejores_features:
+            if feat not in df_tarea.columns:
+                continue
+                
+            plt.figure(figsize=(9, 5))
+            
+            try:
+                sns.kdeplot(
+                    data=df_tarea,
+                    x=feat,
+                    hue='Grupo',
+                    fill=True,
+                    common_norm=False,
+                    palette={'Control': 'blue', 'Ansiedad': 'red'},
+                    alpha=0.3,
+                    linewidth=2.0
+                )
+                
+                plt.title(f"Distribución de Densidad: {feat} ({tarea})", fontsize=12, fontweight='bold', pad=15)
+                plt.xlabel(f"Valor Normalizado (Z-Score)", fontsize=10)
+                plt.ylabel("Densidad", fontsize=10)
+                plt.tight_layout()
+                
+                nombre_grafica = os.path.join(dir_salida, f"Densidad_{feat}.png")
+                plt.savefig(nombre_grafica, dpi=300)
+                plt.close()
+            except Exception as e:
+                print(f"Error al graficar {feat} en {tarea}: {e}")
+                plt.close()
+
+    print("\n¡Gráficos de densidad generados con éxito!")
+
+if __name__ == "__main__":
+    principal()

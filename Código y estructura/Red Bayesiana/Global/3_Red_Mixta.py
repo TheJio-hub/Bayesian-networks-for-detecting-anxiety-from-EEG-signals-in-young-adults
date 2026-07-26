@@ -115,16 +115,27 @@ def graficar_dag(dag, titulo, nombre_archivo):
 
 def split_ansiedad_into_three(df_ansiedad, n_control, seed=42):
     df_ansiedad_shuffled = df_ansiedad.sample(frac=1.0, random_state=seed)
+    
+    if len(df_ansiedad) < n_control:
+        sub_A = df_ansiedad.sample(n=n_control, replace=True, random_state=seed)
+        sub_B = df_ansiedad.sample(n=n_control, replace=True, random_state=seed+1)
+        sub_C = df_ansiedad.sample(n=n_control, replace=True, random_state=seed+2)
+        return sub_A, sub_B, sub_C
+        
     sub_A = df_ansiedad_shuffled.iloc[0:n_control]
     sub_B = df_ansiedad_shuffled.iloc[n_control:2*n_control]
     n_remaining = len(df_ansiedad_shuffled) - 2 * n_control
     remaining = df_ansiedad_shuffled.iloc[2*n_control:]
+    
     if n_remaining < n_control:
         n_to_fill = n_control - n_remaining
-        fill = df_ansiedad_shuffled.iloc[0:2*n_control].sample(n=n_to_fill, replace=False, random_state=seed+1)
+        poblacion = df_ansiedad_shuffled.iloc[0:2*n_control]
+        replace_val = True if len(poblacion) < n_to_fill else False
+        fill = poblacion.sample(n=n_to_fill, replace=replace_val, random_state=seed+1)
         sub_C = pd.concat([remaining, fill])
     else:
         sub_C = remaining.iloc[0:n_control]
+        
     return sub_A, sub_B, sub_C
 
 def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, grupos, algoritmo):
@@ -151,68 +162,102 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
         df_entrenamiento = datos_mixed.iloc[indices_entrenamiento]
         df_prueba = datos_mixed.iloc[indices_prueba]
         
-        global CALL_COUNTER
-        CALL_COUNTER = 0
+        df_control = df_entrenamiento[df_entrenamiento[columna_objetivo] == 0]
+        df_ansiedad = df_entrenamiento[df_entrenamiento[columna_objetivo] == 1]
+        
+        n_control = len(df_control)
+        df_ansiedad_A, df_ansiedad_B, df_ansiedad_C = split_ansiedad_into_three(df_ansiedad, n_control, seed=42)
+        
+        df_train_A = pd.concat([df_control, df_ansiedad_A])
+        df_train_B = pd.concat([df_control, df_ansiedad_B])
+        df_train_C = pd.concat([df_control, df_ansiedad_C])
+        
+        # --- Model A ---
+        manta_A = []
         try:
+            global CALL_COUNTER
+            CALL_COUNTER = 0
             if algoritmo == "PC":
-                estimador = PC(
-                    variant='stable',
-                    ci_test='fisher_z',
-                    significance_level=0.05,
-                    return_type='dag',
-                    show_progress=False
-                )
-                estimador.fit(df_entrenamiento)
-                dag = estimador.causal_graph_
+                est = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
+                est.fit(df_train_A)
+                dag_A = est.causal_graph_
             else:
-                scoring_fn = RobustBICCondGauss(df_entrenamiento)
-                estimador = GES(scoring_method=scoring_fn, return_type='dag')
-                estimador.fit(df_entrenamiento)
-                dag = estimador.causal_graph_
+                scoring_fn = RobustBICCondGauss(df_train_A)
+                est = GES(scoring_method=scoring_fn, return_type='dag')
+                est.fit(df_train_A)
+                dag_A = est.causal_graph_
             
-            if columna_objetivo in dag.nodes():
-                manta_markov = dag.get_markov_blanket(columna_objetivo)
-            else:
-                manta_markov = []
-                
-            if len(manta_markov) == 0:
-                raise ValueError("Manta de Markov vacía")
-
-            df_control = df_entrenamiento[df_entrenamiento[columna_objetivo] == 0]
-            df_ansiedad = df_entrenamiento[df_entrenamiento[columna_objetivo] == 1]
-            
-            n_control = len(df_control)
-            df_ansiedad_A, df_ansiedad_B, df_ansiedad_C = split_ansiedad_into_three(df_ansiedad, n_control, seed=42)
-            
-            df_train_A = pd.concat([df_control, df_ansiedad_A])
-            df_train_B = pd.concat([df_control, df_ansiedad_B])
-            df_train_C = pd.concat([df_control, df_ansiedad_C])
-            
-            clf_A = LogisticRegression(random_state=42)
-            clf_A.fit(df_train_A[manta_markov], df_train_A[columna_objetivo])
-            prob_A = clf_A.predict_proba(df_prueba[manta_markov])[:, 1]
-            
-            clf_B = LogisticRegression(random_state=42)
-            clf_B.fit(df_train_B[manta_markov], df_train_B[columna_objetivo])
-            prob_B = clf_B.predict_proba(df_prueba[manta_markov])[:, 1]
-            
-            clf_C = LogisticRegression(random_state=42)
-            clf_C.fit(df_train_C[manta_markov], df_train_C[columna_objetivo])
-            prob_C = clf_C.predict_proba(df_prueba[manta_markov])[:, 1]
-            
-            y_pred[indices_prueba] = (prob_A + prob_B + prob_C) / 3.0
-            
+            if columna_objetivo in dag_A.nodes():
+                manta_A = dag_A.get_markov_blanket(columna_objetivo)
         except Exception:
-            y_pred[indices_prueba] = df_entrenamiento[columna_objetivo].mean()
+            pass
+        if len(manta_A) == 0:
+            manta_A = caracteristicas_seleccionadas
             
-    umbral = 0.50
+        clf_A = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+        clf_A.fit(df_train_A[manta_A], df_train_A[columna_objetivo])
+        prob_A = clf_A.predict_proba(df_prueba[manta_A])[:, 1]
+        
+        # --- Model B ---
+        manta_B = []
+        try:
+            CALL_COUNTER = 0
+            if algoritmo == "PC":
+                est = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
+                est.fit(df_train_B)
+                dag_B = est.causal_graph_
+            else:
+                scoring_fn = RobustBICCondGauss(df_train_B)
+                est = GES(scoring_method=scoring_fn, return_type='dag')
+                est.fit(df_train_B)
+                dag_B = est.causal_graph_
+            
+            if columna_objetivo in dag_B.nodes():
+                manta_B = dag_B.get_markov_blanket(columna_objetivo)
+        except Exception:
+            pass
+        if len(manta_B) == 0:
+            manta_B = caracteristicas_seleccionadas
+            
+        clf_B = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+        clf_B.fit(df_train_B[manta_B], df_train_B[columna_objetivo])
+        prob_B = clf_B.predict_proba(df_prueba[manta_B])[:, 1]
+        
+        # --- Model C ---
+        manta_C = []
+        try:
+            CALL_COUNTER = 0
+            if algoritmo == "PC":
+                est = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
+                est.fit(df_train_C)
+                dag_C = est.causal_graph_
+            else:
+                scoring_fn = RobustBICCondGauss(df_train_C)
+                est = GES(scoring_method=scoring_fn, return_type='dag')
+                est.fit(df_train_C)
+                dag_C = est.causal_graph_
+            
+            if columna_objetivo in dag_C.nodes():
+                manta_C = dag_C.get_markov_blanket(columna_objetivo)
+        except Exception:
+            pass
+        if len(manta_C) == 0:
+            manta_C = caracteristicas_seleccionadas
+            
+        clf_C = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+        clf_C.fit(df_train_C[manta_C], df_train_C[columna_objetivo])
+        prob_C = clf_C.predict_proba(df_prueba[manta_C])[:, 1]
+        
+        y_pred[indices_prueba] = (prob_A + prob_B + prob_C) / 3.0
+            
+    umbral = 0.5
     y_pred_bin = (y_pred >= umbral).astype(int)
     y_real_bin = y_real.astype(int)
     
     return y_real_bin, y_pred_bin
 
 def principal():
-    dir_resultados = os.path.join('Resultados', 'Red Bayesiana', 'Mixta')
+    dir_resultados = os.path.join('Resultados', 'Red Bayesiana', 'Global', 'Mixta')
     os.makedirs(dir_resultados, exist_ok=True)
     
     archivo_datos = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
@@ -238,7 +283,7 @@ def principal():
     grupos_desarrollo = df_desarrollo['Sujeto'].values
     
     df_ranking = pd.read_csv(archivo_ranking)
-    df_ranking = df_ranking.sort_values(by=['Importancia_DT', 'Mutual_Info'], ascending=[False, False])
+    df_ranking = df_ranking.sort_values(by='Importancia_DT', ascending=False)
     mejores_caracteristicas = df_ranking['Caracteristica'].tolist()
     
     tamanos_top = [10, 15]
@@ -272,67 +317,103 @@ def principal():
             global CALL_COUNTER
             CALL_COUNTER = 0
             
-            dag_final = None
+            df_control_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 0]
+            df_ansiedad_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 1]
+            
+            n_control_final = len(df_control_final)
+            df_ansiedad_final_A, df_ansiedad_final_B, df_ansiedad_final_C = split_ansiedad_into_three(df_ansiedad_final, n_control_final, seed=42)
+            
+            df_train_final_A = pd.concat([df_control_final, df_ansiedad_final_A])
+            df_train_final_B = pd.concat([df_control_final, df_ansiedad_final_B])
+            df_train_final_C = pd.concat([df_control_final, df_ansiedad_final_C])
+            
+            # --- Model A ---
+            manta_final_A = []
+            dag_final_A = None
             try:
+                CALL_COUNTER = 0
                 if algoritmo == "PC":
-                    est_final = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
-                    est_final.fit(df_desarrollo_sub)
-                    dag_final = est_final.causal_graph_
+                    est_f_A = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
+                    est_f_A.fit(df_train_final_A)
+                    dag_final_A = est_f_A.causal_graph_
                 else:
-                    scoring_fn = RobustBICCondGauss(df_desarrollo_sub)
-                    est_final = GES(scoring_method=scoring_fn, return_type='dag')
-                    est_final.fit(df_desarrollo_sub)
-                    dag_final = est_final.causal_graph_
+                    scoring_fn = RobustBICCondGauss(df_train_final_A)
+                    est_f_A = GES(scoring_method=scoring_fn, return_type='dag')
+                    est_f_A.fit(df_train_final_A)
+                    dag_final_A = est_f_A.causal_graph_
+                if 'Ansiedad' in dag_final_A.nodes():
+                    manta_final_A = dag_final_A.get_markov_blanket('Ansiedad')
             except Exception:
-                dag_final = None
-                
+                pass
+            if len(manta_final_A) == 0:
+                manta_final_A = caracteristicas
+            
+            clf_final_A = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+            clf_final_A.fit(df_train_final_A[manta_final_A], df_train_final_A['Ansiedad'])
+            prob_test_A = clf_final_A.predict_proba(df_prueba_externa_sub[manta_final_A])[:, 1]
+            
+            # --- Model B ---
+            manta_final_B = []
+            dag_final_B = None
             try:
-                if dag_final is None or len(dag_final.edges()) == 0:
-                    raise ValueError("Grafo vacío")
-                    
-                if 'Ansiedad' in dag_final.nodes():
-                    manta_markov_final = dag_final.get_markov_blanket('Ansiedad')
+                CALL_COUNTER = 0
+                if algoritmo == "PC":
+                    est_f_B = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
+                    est_f_B.fit(df_train_final_B)
+                    dag_final_B = est_f_B.causal_graph_
                 else:
-                    manta_markov_final = []
-                if len(manta_markov_final) == 0:
-                    raise ValueError("Manta de Markov vacía")
-
-                df_control_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 0]
-                df_ansiedad_final = df_desarrollo_sub[df_desarrollo_sub['Ansiedad'] == 1]
-                
-                n_control_final = len(df_control_final)
-                df_ansiedad_final_A, df_ansiedad_final_B, df_ansiedad_final_C = split_ansiedad_into_three(df_ansiedad_final, n_control_final, seed=42)
-                
-                df_train_final_A = pd.concat([df_control_final, df_ansiedad_final_A])
-                df_train_final_B = pd.concat([df_control_final, df_ansiedad_final_B])
-                df_train_final_C = pd.concat([df_control_final, df_ansiedad_final_C])
-                
-                clf_final_A = LogisticRegression(random_state=42)
-                clf_final_A.fit(df_train_final_A[manta_markov_final], df_train_final_A['Ansiedad'])
-                prob_test_A = clf_final_A.predict_proba(df_prueba_externa_sub[manta_markov_final])[:, 1]
-                
-                clf_final_B = LogisticRegression(random_state=42)
-                clf_final_B.fit(df_train_final_B[manta_markov_final], df_train_final_B['Ansiedad'])
-                prob_test_B = clf_final_B.predict_proba(df_prueba_externa_sub[manta_markov_final])[:, 1]
-                
-                clf_final_C = LogisticRegression(random_state=42)
-                clf_final_C.fit(df_train_final_C[manta_markov_final], df_train_final_C['Ansiedad'])
-                prob_test_C = clf_final_C.predict_proba(df_prueba_externa_sub[manta_markov_final])[:, 1]
-                
-                y_prueba_externa_pred = (((prob_test_A + prob_test_B + prob_test_C) / 3.0) >= 0.50).astype(int)
+                    scoring_fn = RobustBICCondGauss(df_train_final_B)
+                    est_f_B = GES(scoring_method=scoring_fn, return_type='dag')
+                    est_f_B.fit(df_train_final_B)
+                    dag_final_B = est_f_B.causal_graph_
+                if 'Ansiedad' in dag_final_B.nodes():
+                    manta_final_B = dag_final_B.get_markov_blanket('Ansiedad')
             except Exception:
-                y_prueba_externa_pred = np.repeat(df_desarrollo_sub['Ansiedad'].mode().values[0], len(df_prueba_externa_sub))
-                
+                pass
+            if len(manta_final_B) == 0:
+                manta_final_B = caracteristicas
+            
+            clf_final_B = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+            clf_final_B.fit(df_train_final_B[manta_final_B], df_train_final_B['Ansiedad'])
+            prob_test_B = clf_final_B.predict_proba(df_prueba_externa_sub[manta_final_B])[:, 1]
+            
+            # --- Model C ---
+            manta_final_C = []
+            dag_final_C = None
+            try:
+                CALL_COUNTER = 0
+                if algoritmo == "PC":
+                    est_f_C = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
+                    est_f_C.fit(df_train_final_C)
+                    dag_final_C = est_f_C.causal_graph_
+                else:
+                    scoring_fn = RobustBICCondGauss(df_train_final_C)
+                    est_f_C = GES(scoring_method=scoring_fn, return_type='dag')
+                    est_f_C.fit(df_train_final_C)
+                    dag_final_C = est_f_C.causal_graph_
+                if 'Ansiedad' in dag_final_C.nodes():
+                    manta_final_C = dag_final_C.get_markov_blanket('Ansiedad')
+            except Exception:
+                pass
+            if len(manta_final_C) == 0:
+                manta_final_C = caracteristicas
+            
+            clf_final_C = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+            clf_final_C.fit(df_train_final_C[manta_final_C], df_train_final_C['Ansiedad'])
+            prob_test_C = clf_final_C.predict_proba(df_prueba_externa_sub[manta_final_C])[:, 1]
+            
+            y_prueba_externa_pred = (((prob_test_A + prob_test_B + prob_test_C) / 3.0) >= 0.50).astype(int)
+            
             cs_val = np.nan
             fisher_p = np.nan
             fisher_rmsea = np.nan
-            if dag_final is not None:
+            if dag_final_A is not None:
                 try:
-                    cs_val = CorrelationScore(ci_test='pearsonr', significance_level=0.05).evaluate(X=df_desarrollo_sub, causal_graph=dag_final)
+                    cs_val = CorrelationScore(ci_test='pearsonr', significance_level=0.05).evaluate(X=df_train_final_A, causal_graph=dag_final_A)
                 except Exception:
                     pass
                 try:
-                    fisher_p, fisher_rmsea = FisherC(ci_test='pearsonr', compute_rmsea=True, show_progress=False).evaluate(X=df_desarrollo_sub, causal_graph=dag_final)
+                    fisher_p, fisher_rmsea = FisherC(ci_test='pearsonr', compute_rmsea=True, show_progress=False).evaluate(X=df_train_final_A, causal_graph=dag_final_A)
                 except Exception:
                     pass
 
@@ -350,36 +431,34 @@ def principal():
             
             alg_desc = 'PC (fisher_z)' if algoritmo == "PC" else 'GES (bic-cg)'
             resultados_loso.append({
-                'Algoritmo_Estructura': alg_desc,
-                'Top_Features': n_caracteristicas,
-                'Val_Exactitud': val_acc,
-                'Val_Exactitud_Balanceada': val_bal_acc,
-                'Val_Precisión': val_prec,
-                'Val_Sensibilidad': val_sens,
-                'Val_Especificidad': val_spec,
-                'Val_F1_Score': val_f1,
-                'Test_Exactitud': test_acc,
-                'Test_Exactitud_Balanceada': test_bal_acc,
-                'Test_Precisión': test_prec,
-                'Test_Sensibilidad': test_sens,
-                'Test_Especificidad': test_spec,
-                'Test_F1_Score': test_f1,
-                'CorrelationScore': cs_val,
-                'FisherC_p_value': fisher_p,
+                'Estructura': alg_desc,
+                'Top': n_caracteristicas,
+                'Exact. (Val)': val_acc,
+                'Exact. (Test)': test_acc,
+                'Prec. (Val)': val_prec,
+                'Prec. (Test)': test_prec,
+                'Sens. (Val)': val_sens,
+                'Sens. (Test)': test_sens,
+                'Esp. (Val)': val_spec,
+                'Esp. (Test)': test_spec,
+                'F1 (Val)': val_f1,
+                'F1 (Test)': test_f1,
+                'CS': cs_val,
+                'FisherC_p': fisher_p,
                 'FisherC_RMSEA': fisher_rmsea
             })
             
-            if dag_final is not None:
+            if dag_final_A is not None:
                 try:
                     graficar_dag(
-                        dag_final, 
+                        dag_final_A, 
                         f"Red Causal Mixta ({alg_desc}, Top-{n_caracteristicas})", 
                         os.path.join(dir_resultados, f"Estructura_Global_{algoritmo}_top{n_caracteristicas}.png")
                     )
                 except Exception as e:
                     print(f"Error graficando DAG {algoritmo} top {n_caracteristicas}: {e}")
 
-    df_resultados = pd.DataFrame(resultados_loso)
+    df_resultados = pd.DataFrame(resultados_loso).round(4)
     ruta_salida = os.path.join(dir_resultados, 'Resultados_Red_Mixta.csv')
     df_resultados.to_csv(ruta_salida, index=False)
     

@@ -1,0 +1,32 @@
+1. Análisis por Tareas Individuales [COMPLETADO]
+   * Entrenar y evaluar todas las redes bayesianas comparando Relajación vs. cada tarea individual (Aritmética, Espejo, Stroop).
+   * Identificar qué tareas cognitivas estimulan diferencias de conectividad causal más marcadas (como Stroop, que ya muestra resultados muy superiores al modelo global).
+
+2. Análisis Segmentado por Trial (Temporal) [COMPLETADO]
+   * Entrenar y evaluar modelos separando por Trial 1, Trial 2 y Trial 3 para cada sujeto.
+   * Objetivo: Estudiar la variación temporal de las métricas para analizar el impacto de la fatiga cognitiva o la habituación durante el experimento.
+
+2.1. Obtener los graficos de densidad para revisar la distribucion de las clases [COMPLETADO]
+
+
+3. Mapeo de EEG de Canales a Regiones de la Corteza
+   * Agrupar los 32 canales de coordinates.locs en 5 regiones cerebrales:
+     - Frontal (ej. Fp1, Fp2, F7, F3, Fz, F4, F8)
+     - Central (ej. FC5, FC1, FC2, FC6, C3, Cz, C4)
+     - Temporal (ej. T7, T8, CP5, CP6, TP9, TP10)
+     - Parietal (ej. CP1, CP2, P7, P3, Pz, P4, P8)
+     - Occipital (ej. O1, Oz, O2)
+   * Caracterizar las variables promediando las potencias de los canales dentro de cada región.
+   * Objetivo: Reducir drásticamente la dimensionalidad del espacio de características (evitando sobreajuste) y dotar a la estructura causal de una interpretación neurofisiológica directa (ej. "Lóbulo Frontal -> Lóbulo Parietal" en lugar de canales específicos).
+
+4. Construcción de la Red Bayesiana Definitiva (Ensamble de Conocimiento)
+   Una vez identificados los mejores modelos de la fase global y por tareas, desarrollar el modelo definitivo mediante uno de los siguientes enfoques de fusión:
+   * A. Ensamble Ponderado de Probabilidades:
+     - P_final = w * P_tarea_especifica + (1 - w) * P_global.
+     - Combina la alta sensibilidad local del modelo por tarea con la robustez general y baja varianza del modelo global.
+   * B. Transferencia Estructural (Priorización de DAG):
+     - Extraer los arcos estables y estadísticamente significativos de la red global.
+     - Utilizar estos arcos como restricciones o priors (white_list o fixed_edges) al entrenar las redes bayesianas de tareas específicas para guiar su estructura y evitar ruido.
+   * C. Meta-Clasificador Jerárquico (Stacking):
+     - Usar las probabilidades estimadas por el modelo global y los modelos de tareas como variables de entrada para un meta-modelo ligero (ej. Regresión Logística con penalización L2).
+     - El meta-modelo aprende dinámicamente qué peso dar a cada red según el perfil de EEG del sujeto.

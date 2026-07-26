@@ -14,6 +14,17 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from pgmpy.causal_discovery import GES, PC
 from pgmpy.models import LinearGaussianBayesianNetwork
 from pgmpy.metrics import CorrelationScore, FisherC
+from pgmpy.structure_score import BICCondGauss
+
+class RobustBICCondGauss(BICCondGauss):
+    def _local_score(self, variable, parents):
+        try:
+            score = super()._local_score(variable, parents)
+            if np.isnan(score) or np.isinf(score):
+                return -1e9
+            return score
+        except Exception:
+            return -1e9
 
 def tqdm(*args, **kwargs):
     kwargs.setdefault('mininterval', 1.5)
@@ -154,7 +165,8 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 estimador_A.fit(df_train_A)
                 dag_A = estimador_A.causal_graph_
             else:
-                estimador_A = GES(scoring_method='bic-g', return_type='dag')
+                scoring_fn = RobustBICCondGauss(df_train_A)
+                estimador_A = GES(scoring_method=scoring_fn, return_type='dag')
                 estimador_A.fit(df_train_A)
                 dag_A = estimador_A.causal_graph_
             
@@ -173,7 +185,8 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 estimador_B.fit(df_train_B)
                 dag_B = estimador_B.causal_graph_
             else:
-                estimador_B = GES(scoring_method='bic-g', return_type='dag')
+                scoring_fn = RobustBICCondGauss(df_train_B)
+                estimador_B = GES(scoring_method=scoring_fn, return_type='dag')
                 estimador_B.fit(df_train_B)
                 dag_B = estimador_B.causal_graph_
             
@@ -192,7 +205,8 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 estimador_C.fit(df_train_C)
                 dag_C = estimador_C.causal_graph_
             else:
-                estimador_C = GES(scoring_method='bic-g', return_type='dag')
+                scoring_fn = RobustBICCondGauss(df_train_C)
+                estimador_C = GES(scoring_method=scoring_fn, return_type='dag')
                 estimador_C.fit(df_train_C)
                 dag_C = estimador_C.causal_graph_
             
@@ -216,7 +230,7 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
     return y_real_bin, y_pred_bin, umbral_optimo
 
 def principal():
-    dir_resultados = os.path.join('Resultados', 'Red Bayesiana', 'Continua')
+    dir_resultados = os.path.join('Resultados', 'Red Bayesiana', 'Global', 'Continua')
     os.makedirs(dir_resultados, exist_ok=True)
     
     archivo_datos = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
@@ -242,16 +256,20 @@ def principal():
     grupos_desarrollo = df_desarrollo['Sujeto'].values
     
     df_ranking = pd.read_csv(archivo_ranking)
-    df_ranking = df_ranking.sort_values(by=['Importancia_DT', 'Mutual_Info'], ascending=[False, False])
-    mejores_caracteristicas = df_ranking['Caracteristica'].tolist()
     
     tamanos_top = [10, 15]
     resultados_loso = []
     
     for n_caracteristicas in tamanos_top:
-        caracteristicas = mejores_caracteristicas[:n_caracteristicas]
-        
         for algoritmo in ["PC", "GES"]:
+            # Selección híbrida (mRMR para PC Top 10, DT para los demás)
+            if algoritmo == "PC" and n_caracteristicas == 10:
+                df_ranking_temp = df_ranking.sort_values(by='mRMR_40_Rank', ascending=True)
+            else:
+                df_ranking_temp = df_ranking.sort_values(by='Importancia_DT', ascending=False)
+                
+            caracteristicas = df_ranking_temp['Caracteristica'].tolist()[:n_caracteristicas]
+            
             y_real_val, y_pred_val, umbral_optimo = ejecutar_loso(df_desarrollo, caracteristicas, 'Ansiedad', grupos_desarrollo, algoritmo)
             
             val_acc = accuracy_score(y_real_val, y_pred_val)
@@ -292,7 +310,8 @@ def principal():
                     est_final_A.fit(df_train_final_A)
                     dag_final_A = est_final_A.causal_graph_
                 else:
-                    est_final_A = GES(scoring_method='bic-g', return_type='dag')
+                    scoring_fn = RobustBICCondGauss(df_train_final_A)
+                    est_final_A = GES(scoring_method=scoring_fn, return_type='dag')
                     est_final_A.fit(df_train_final_A)
                     dag_final_A = est_final_A.causal_graph_
                 
@@ -311,7 +330,8 @@ def principal():
                     est_final_B.fit(df_train_final_B)
                     dag_final_B = est_final_B.causal_graph_
                 else:
-                    est_final_B = GES(scoring_method='bic-g', return_type='dag')
+                    scoring_fn = RobustBICCondGauss(df_train_final_B)
+                    est_final_B = GES(scoring_method=scoring_fn, return_type='dag')
                     est_final_B.fit(df_train_final_B)
                     dag_final_B = est_final_B.causal_graph_
                 
@@ -330,7 +350,8 @@ def principal():
                     est_final_C.fit(df_train_final_C)
                     dag_final_C = est_final_C.causal_graph_
                 else:
-                    est_final_C = GES(scoring_method='bic-g', return_type='dag')
+                    scoring_fn = RobustBICCondGauss(df_train_final_C)
+                    est_final_C = GES(scoring_method=scoring_fn, return_type='dag')
                     est_final_C.fit(df_train_final_C)
                     dag_final_C = est_final_C.causal_graph_
                 
@@ -381,22 +402,20 @@ def principal():
             
             alg_desc = 'PC (fisher_z)' if algoritmo == "PC" else 'GES (bic-g)'
             resultados_loso.append({
-                'Algoritmo_Estructura': alg_desc,
-                'Top_Features': n_caracteristicas,
-                'Val_Exactitud': val_acc,
-                'Val_Exactitud_Balanceada': val_bal_acc,
-                'Val_Precisión': val_prec,
-                'Val_Sensibilidad': val_sens,
-                'Val_Especificidad': val_spec,
-                'Val_F1_Score': val_f1,
-                'Test_Exactitud': test_acc,
-                'Test_Exactitud_Balanceada': test_bal_acc,
-                'Test_Precisión': test_prec,
-                'Test_Sensibilidad': test_sens,
-                'Test_Especificidad': test_spec,
-                'Test_F1_Score': test_f1,
-                'CorrelationScore': cs_val,
-                'FisherC_p_value': fisher_p,
+                'Estructura': alg_desc,
+                'Top': n_caracteristicas,
+                'Exact. (Val)': val_acc,
+                'Exact. (Test)': test_acc,
+                'Prec. (Val)': val_prec,
+                'Prec. (Test)': test_prec,
+                'Sens. (Val)': val_sens,
+                'Sens. (Test)': test_sens,
+                'Esp. (Val)': val_spec,
+                'Esp. (Test)': test_spec,
+                'F1 (Val)': val_f1,
+                'F1 (Test)': test_f1,
+                'CS': cs_val,
+                'FisherC_p': fisher_p,
                 'FisherC_RMSEA': fisher_rmsea
             })
             
@@ -428,7 +447,7 @@ def principal():
                 except Exception as e:
                     print(f"Error graficando DAG C {algoritmo} top {n_caracteristicas}: {e}")
 
-    df_resultados = pd.DataFrame(resultados_loso)
+    df_resultados = pd.DataFrame(resultados_loso).round(4)
     ruta_salida = os.path.join(dir_resultados, 'Resultados_Red_Continua.csv')
     df_resultados.to_csv(ruta_salida, index=False)
     

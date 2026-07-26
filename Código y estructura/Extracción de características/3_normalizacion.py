@@ -77,6 +77,10 @@ def ejecutar_normalizacion() -> None:
         os.path.join(directorio, 'datos_ratios_log10.parquet'),
         os.path.join(directorio, 'datos_ratios_log10.csv'),
     )
+    df_asim_ratios = cargar_df(
+        os.path.join(directorio, 'datos_asimetria_ratios_log10.parquet'),
+        os.path.join(directorio, 'datos_asimetria_ratios_log10.csv'),
+    )
 
     if df_bandas.empty:
         raise FileNotFoundError('No se encontro el dataset log10 de bandas en Resultados/Exploratorio.')
@@ -108,17 +112,25 @@ def ejecutar_normalizacion() -> None:
     else:
         df_ratios_norm = pd.DataFrame()
 
+    if not df_asim_ratios.empty:
+        df_asim_ratios_norm = normalizar_z_score_relajacion(df_asim_ratios)
+        guardar_df(
+            df_asim_ratios_norm,
+            os.path.join(directorio, 'datos_asimetria_ratios_normalizados.parquet'),
+            os.path.join(directorio, 'datos_asimetria_ratios_normalizados.csv'),
+        )
+    else:
+        df_asim_ratios_norm = pd.DataFrame()
+
     columnas_join = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje']
 
-    if not df_asim_norm.empty and not df_ratios_norm.empty:
-        df_merged = pd.merge(df_bandas_norm, df_asim_norm, on=columnas_join, how='inner')
+    df_merged = df_bandas_norm.copy()
+    if not df_asim_norm.empty:
+        df_merged = pd.merge(df_merged, df_asim_norm, on=columnas_join, how='inner')
+    if not df_ratios_norm.empty:
         df_merged = pd.merge(df_merged, df_ratios_norm, on=columnas_join, how='inner')
-    elif not df_asim_norm.empty:
-        df_merged = pd.merge(df_bandas_norm, df_asim_norm, on=columnas_join, how='inner')
-    elif not df_ratios_norm.empty:
-        df_merged = pd.merge(df_bandas_norm, df_ratios_norm, on=columnas_join, how='inner')
-    else:
-        df_merged = df_bandas_norm.copy()
+    if not df_asim_ratios_norm.empty:
+        df_merged = pd.merge(df_merged, df_asim_ratios_norm, on=columnas_join, how='inner')
 
     guardar_df(
         df_merged,
