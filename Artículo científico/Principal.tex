@@ -1,0 +1,477 @@
+
+% !TeX spellcheck = es_ES
+% LTeX: language=es-MX
+\documentclass[runningheads]{llncs}
+%
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-tabla]{babel}
+
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xurl}
+\usepackage[hidelinks]{hyperref}
+\usepackage[section]{placeins}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta}
+
+\emergencystretch=2em
+\raggedbottom
+
+\begin{document}
+
+\title{Selección de características espectrales para la detección de ansiedad a partir de señales EEG en jóvenes adultos}
+\titlerunning{\textbf{Selección de características para la detección de ansiedad con EEG}}
+
+\author{Jovani Gallegos Álvarez\orcidID{0009-0001-7274-2607} \and Verónica Rodríguez López\orcidID{0000-0002-5976-9338}}
+%
+\authorrunning{J. Gallegos et al.}
+
+\institute{Universidad Tecnológica de la Mixteca\\
+Oaxaca. C.P. 69004, México\\
+\email{gaaj010320@gs.utm.mx}\\
+\email{veromix@gs.utm.mx}}
+%
+\maketitle    
+\begin{abstract}
+La detección de ansiedad a través del electroencefalograma (EEG) representa un desafío clínico y computacional. Aunque es una señal con información valiosa, también incluye una alta redundancia que puede afectar a los modelos de detección. Esta investigación analiza diversos métodos de selección de características en cuanto a su capacidad para eliminar características redundantes y generar modelos de detección de ansiedad más robustos. El estudio se enfoca en analizar características espectrales extraídas del conjunto de datos SAM40 y seleccionadas con métodos de filtro, híbridos y embebidos. Los hallazgos muestran que la selección de características mejora el equilibrio entre capacidad predictiva e interpretabilidad. Adicionalmente, los resultados experimentales indican que las características con mejor capacidad discriminante son las obtenidas para las bandas de frecuencia alfa y delta.
+
+\keywords{Ansiedad \and EEG \and Selección de características \and mRMR \and Fisher \and MI}
+\end{abstract}
+
+\section{Introducción}
+Los trastornos de ansiedad representan una carga relevante para la salud mental~\cite{WHOICD11}. En población joven, su impacto académico, social y personal es particularmente alto~\cite{Chand2025}. Aunque el diagnóstico clínico mediante entrevista y escalas estandarizadas sigue siendo indispensable~\cite{Hamilton1959}, el éxito de su aplicación depende en parte del autorreporte y la experiencia de los evaluadores~\cite{SCID2018}. En este contexto, el electroencefalograma (EEG), en combinación con métodos de aprendizaje automático, ofrece una fuente objetiva y no invasiva para detectar ansiedad~\cite{StatPearlsEEG2023}.
+
+La detección de ansiedad a través del EEG presenta un reto importante: las características espectrales, espaciales y de conectividad producen espacios de alta dimensionalidad con ruido y redundancia que impactan significativamente en el desempeño e interpretabilidad de los modelos de detección. La literatura en análisis de señales fisiológicas ha mostrado que la selección de características representa un paso crítico para estabilizar el rendimiento de los clasificadores en espacios de alta dimensión~\cite{Acharya2014}. En estudios recientes sobre el conjunto SAM40, Afify et al. propusieron una CNN para detectar estrés a partir de EEG y Shikha et al. evaluaron clasificadores apilados sobre características en tiempo y frecuencia~\cite{Afify2025,Shikha2025}.
+
+Esta investigación tiene como objetivo analizar diversos métodos de selección de características en su capacidad para identificar las características relevantes que ayuden a generar modelos de detección de ansiedad más robustos e interpretables. El estudio se enfoca en analizar características espectrales extraídas del conjunto de datos SAM40 \cite{SAM40Figshare2021} y seleccionadas con métodos de filtro, híbridos y embebidos. 
+
+\section{Metodología}
+Esta sección describe el flujo metodológico aplicado en esta investigación que considera el conjunto de datos, la extracción de características espectrales, la selección de características, el aprendizaje de clasificadores y la evaluación. Este flujo se resume en la Figura \ref{fig:flujo_metodologia}.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+	node distance=0.9cm,
+	box/.style={draw, rounded corners, align=center, minimum width=0.82\linewidth, minimum height=0.9cm},
+	arr/.style={-{Latex[length=2.5mm]}, thick}
+]
+\node[box] (d1) {Conjunto de datos SAM40};
+\node[box, below=of d1] (d2) {Extracción de características espectrales};
+\node[box, below=of d2] (d3) {Selección de características};
+\node[box, below=of d3] (d4) {Aprendizaje de clasificadores};
+\node[box, below=of d4] (d5) {Evaluación};
+
+\draw[arr] (d1) -- (d2);
+\draw[arr] (d2) -- (d3);
+\draw[arr] (d3) -- (d4);
+\draw[arr] (d4) -- (d5);
+\end{tikzpicture}
+\caption{Etapas principales de la metodología.\label{fig:flujo_metodologia}}
+\end{figure}
+
+\subsection{Conjunto de datos}
+La investigación se desarrolló con el conjunto SAM40~\cite{SAM40Figshare2021}, que incluye estudios de EEG de 40 participantes jóvenes. Los estudios fueron obtenidos con un equipo Emotiv de 32 canales a una frecuencia de muestreo de 128 Hz, mientras los participantes se encontraban relajados y realizaban tres tareas cognitivas: prueba de palabras y colores de Stroop, resolución de preguntas aritméticas e identificación de imágenes especulares simétricas. Cada estudio incluye el registro del estado de relajación y de tres ensayos por cada tarea cognitiva, cada una con una duración de 25 segundos.
+Adicionalmente, el conjunto de datos incluye el puntaje SAM (\textit{Self-Assessment Manikin})~\cite{Bradley1994} de estrés/ansiedad reportado después de cada tarea cognitiva en una escala de 1 a 10.
+
+\subsection{Extracción de características}
+Esta investigación se enfocó en analizar las características espectrales que se resumen en la Tabla \ref{tab:resumen_caracteristicas}.
+Las características se obtuvieron de forma segmentada, con segmentos de 5 s y un solapamiento del 50\%. Este proceso de segmentación permite aumentar el número de muestras útiles sin perder continuidad temporal y mantiene un equilibrio entre resolución temporal y estabilidad espectral.
+
+\begin{table}[!htbp]
+\centering
+\caption{Características espectrales organizadas por tipo, consideradas en esta investigación.}
+\label{tab:resumen_caracteristicas}
+\small
+{\renewcommand{\arraystretch}{1.25}
+\begin{tabular}{p{0.24\linewidth} p{0.6\linewidth} c}
+\hline
+Tipo & Característica & Cantidad \\
+\hline
+\multirow{2}{=}{Potencias espectrales por banda} & alfa, beta & \multirow{2}{*}{160} \\
+& theta, delta, gamma. & \\
+\multirow{3}{=}{Asimetrías hemisféricas} & Fp2-Fp1, F8-F7, F4-F3, FC6-FC5, & \multirow{3}{*}{50} \\
+& T8-T7, C4-C3 y P8-P7, & \\
+& P4-P3, O2-O1 y PO10-PO9. & \\
+\multirow{2}{=}{Razones espectrales} & theta/beta, theta/alfa. & \multirow{2}{*}{96} \\
+& y alfa/beta. & \\
+\hline
+\textbf{Total} & & \textbf{306} \\
+\hline
+\end{tabular}
+}
+\end{table}
+
+Para cada segmento de los canales del EEG se obtuvo su densidad espectral de potencia con el Método de Welch. A partir de esa estimación se calcularon potencias absolutas en cinco bandas (alfa, beta, delta, theta y gamma), obteniendo 160 características espectrales (32 canales por 5 bandas).
+
+Además de las potencias por banda, se obtuvieron dos tipos de características complementarias: asimetrías hemisféricas y razones espectrales. Como asimetrías hemisféricas se obtuvieron los 10 pares homólogos, los cuales corresponden a los pares de canales: Fp2-Fp1, F8-F7, F4-F3, FC6-FC5, T8-T7, C4-C3, P8-P7, P4-P3, O2-O1 y PO10-PO9. Las razones espectrales extraídas fueron theta/beta, theta/alfa y alfa/beta.
+
+Finalmente, a todas las características se les aplicó la transformación logarítmica base 10 para comprimir rango dinámico, reducir asimetría y mejorar la estabilidad numérica.
+
+\subsection{Selección de características}
+En esta investigación se aplicaron tres tipos de métodos de selección de características: (i) métodos estadísticos de filtro, (ii) un método híbrido y (iii) un método embebido.
+
+Como métodos de filtro se analizaron el factor de Fisher (FI) y la información mutua (MI), elegidos por su capacidad para priorizar características de manera individual y con bajo costo computacional \cite{Fisher1936}. El factor de Fisher prioriza características que maximizan la separación entre clases y minimizan la dispersión intraclase, por lo que favorece características con comportamiento discriminativo estable en términos estadísticos. Por su parte, la información mutua cuantifica cuánto conocimiento aporta cada característica sobre la etiqueta de clase, incluso cuando la relación no es lineal, lo que permite recuperar características útiles que no siempre son detectadas por métodos puramente lineales \cite{Shannon1948}. La formulación de criterios de relevancia y redundancia está respaldada por fundamentos de teoría de la información aplicados a selección de características~\cite{CoverThomas2006}.
+
+Se consideró a mRMR como método híbrido para equilibrar dos objetivos simultáneos: conservar características altamente informativas y reducir solapamientos entre características similares (mínima redundancia). Este punto es especialmente importante en EEG, donde diferentes canales o bandas pueden contener información parcialmente repetida \cite{Peng2005}. Finalmente, como método embebido se utilizó la importancia de características estimada con Árbol de Decisión (DT), lo que añadió una perspectiva no lineal dependiente del clasificador y facilitó una lectura más interpretable del aporte de cada característica \cite{Breiman2001}. En modelos basados en árboles, la estructura jerárquica de partición favorece interpretaciones directas sobre el aporte relativo de cada característica~\cite{Breiman1984}.
+
+
+\subsection{Aprendizaje de clasificadores}
+La clasificación se formuló como problema binario y se evaluó mediante cinco técnicas de clasificación: Árbol de Decisión (DT), Random Forest (RF), \textit{K} vecinos más cercanos (KNN), máquina de soporte vectorial (SVM) y un algoritmo de boosting, XGBoost (XGB). DT y RF aportan interpretabilidad estructural y análisis de importancia de características; además, RF incrementa robustez mediante ensamble y reduce la varianza de un árbol individual. KNN y SVM se incluyeron como referencias comparativas: KNN por su simplicidad basada en vecindad local y SVM por su capacidad para modelar fronteras no lineales en espacios de características reducidos. En particular, SVM constituye una referencia sólida para evaluar el efecto de la selección de características~\cite{Cortes1995}. Finalmente, XGBoost permite evaluar el impacto de la selección de características en un modelo de boosting, que es una técnica de ensamble que combina múltiples modelos débiles para crear un modelo fuerte, lo que puede mejorar significativamente el rendimiento en tareas de clasificación.
+
+Para el aprendizaje de los clasificadores se utilizó el conjunto de datos resumido en la Tabla \ref{tab:registros}. Este conjunto se generó a partir de los vectores de características extraídos del estado de relajación y de las tareas cognitivas en las que los participantes alcanzaron un nivel de estrés mayor o igual a 5. Como clase 0 se etiquetaron los vectores de características del estado de relajación, y como clase 1 los vectores obtenidos de las tareas cognitivas.
+
+\FloatBarrier
+
+\begin{table}[!htbp]
+\centering
+\caption{Resumen del conjunto de datos utilizado para la construcción de modelos de detección de ansiedad.}
+\label{tab:registros}
+\small
+\begin{tabular}{p{0.38\linewidth} p{0.4\linewidth} c}
+\hline
+\textbf{Conjunto} & \textbf{Clase} & \textbf{Total por clase} \\
+\hline
+\multirow{2}{=}{2508 registros $\times$ 306 características} & Clase 0: Relajación & 1080 \\
+& Clase 1: Ansiedad & 1428 \\
+\hline
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+Previo a la construcción de los clasificadores, con el fin de controlar la variabilidad
+interindividual y centrar la comparación en cambios relativos respecto al estado
+de relajación de cada participante, la tabla de datos fue normalizada con la transformada Z-score, de acuerdo con la media y la desviación estándar de la clase de relajación.
+
+\subsection{Evaluación}
+Para evaluar el desempeño de los clasificadores y preservar independencia entre muestras del mismo participante, se aplicó validación cruzada dejando un sujeto fuera (LOSO). En cada iteración se reservó un sujeto completo para prueba y se entrenó con el resto.
+
+El desempeño de los clasificadores se realizó con tres métricas principales: sensibilidad, especificidad y exactitud. Estas métricas se calcularon a partir de la matriz de confusión acumulada en validación LOSO, donde $TP$ representa verdaderos positivos, $TN$ verdaderos negativos, $FP$ falsos positivos y $FN$ falsos negativos.
+
+La sensibilidad (S) cuantifica la capacidad del modelo para detectar correctamente casos de ansiedad:
+\begin{equation}
+\mathrm{Sensibilidad}=\frac{TP}{TP+FN}.
+\end{equation}
+
+La especificidad (E) cuantifica la capacidad para reconocer correctamente la clase de relajación:
+\begin{equation}
+\mathrm{Especificidad}=\frac{TN}{TN+FP}.
+\end{equation}
+
+La exactitud (A) resume la proporción total de clasificaciones correctas:
+\begin{equation}
+\mathrm{Exactitud}=\frac{TP+TN}{TP+TN+FP+FN}.
+\end{equation}
+
+\section{Resultados}
+Para evaluar el impacto de los métodos de selección en el desempeño de los clasificadores se realizaron dos experimentos:
+
+\begin{itemize}
+	\item Experimento 1: Impacto de la selección de características en clasificadores globales.
+	\item Experimento 2: Impacto de la selección de características en clasificadores especializados.
+\end{itemize}
+
+
+Los experimentos se implementaron en Python con las librerías \texttt{pandas}, \texttt{NumPy}, \texttt{SciPy}, \texttt{scikit-learn}, \texttt{Matplotlib} y \texttt{Seaborn}. Los experimentos se ejecutaron en una MacBook Pro con procesador Apple M4 y 16 GB de memoria RAM.
+
+Además, las configuraciones de entrenamiento evaluadas fueron: DT con profundidad máxima de 5 y ponderación balanceada; RF con 100 árboles, ponderación balanceada y ejecución paralela; KNN con 5 vecinos; y SVM con núcleo RBF y ponderación balanceada; XGB con 200 árboles, profundidad máxima de 3, tasa de aprendizaje de 0.05 y ponderación balanceada.
+
+\subsection{Experimento 1. Impacto de la selección de características en clasificadores globales}
+Este experimento tiene como objetivo analizar el efecto en el desempeño de los clasificadores al utilizar grupos de características de diversos tamaños obtenidos con los métodos de selección de Fisher, Información Mutua (MI), mínima redundancia y máxima relevancia (mRMR) y Árboles de decisión (DT). Específicamente, se analizaron las mejores 15, 20 y 30 características obtenidas por estos métodos. Esta estrategia se aplicó para evaluar la estabilidad del rendimiento de los clasificadores frente a la reducción de dimensionalidad y que ayudaran a  identificar configuraciones más compactas de características que no implicarán una  pérdida significativa de capacidad predictiva. Este tipo de análisis  es consistente con prácticas de evaluación de modelos en escenarios de alta dimensionalidad y complejidad~\cite{Goodfellow2016}.
+
+\FloatBarrier
+
+\begin{table*}[!htbp]
+\centering
+\caption{Exactitud alcanzada por los modelos al utilizar las mejores 15 (Top-15), 20 (Top-20) y 30 (Top-30) características obtenidas por Fisher, MI, mRMR y DT.}
+\label{tab:comp_global}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1.3}
+\resizebox{1\textwidth}{!}{%
+\begin{tabular}{lccccccccccc}
+\toprule
+\multirow{2}{*}{\textbf{Modelos}} & \multicolumn{3}{c}{\textbf{Fisher}} & \multicolumn{3}{c}{\textbf{MI}} & \multicolumn{3}{c}{\textbf{mRMR}} & \multicolumn{2}{c}{\textbf{DT}} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}\cmidrule(lr){8-10}\cmidrule(lr){11-12}
+& Top-15 & Top-20 & Top-30 & Top-15 & Top-20 & Top-30 & Top-15 & Top-20 & Top-30 & Top-15 & Top-20 \\
+\midrule
+DT & 0.659 & 0.690 & 0.686 & 0.727 & 0.703 & 0.711 & 0.705 & 0.702 & 0.709 & \textbf{0.745} & 0.744 \\
+KNN & 0.668 & 0.673 & 0.680 & 0.689 & 0.691 & 0.685 & 0.696 & 0.691 & 0.685 & \textbf{0.726} & 0.697 \\
+SVM & 0.720 & 0.734 & 0.746 & 0.768 & 0.770 & 0.785 & 0.760 & 0.770 & 0.785 & \textbf{0.805} & 0.808 \\
+RF & 0.725 & 0.738 & 0.748 & 0.767 & 0.768 & 0.793 & 0.763 & 0.764 & 0.789 & 0.811 & \textbf{0.816} \\
+XGB & 0.719 & 0.725 & 0.748 & 0.772 & 0.776 & 0.784 & 0.774 & 0.782 & 0.785 & \textbf{0.805} & 0.799 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\begin{table*}[!htbp]
+\centering
+\caption{Sensibilidad y especificidad alcanzadas por los modelos al utilizar las mejores 15 (Top-15), 20 (Top-20) y 30 (Top-30) características obtenidas por Fisher, MI, mRMR y DT.}
+\label{tab:comp_global_extra}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1.45}
+\resizebox{1\textwidth}{!}{%
+\begin{tabular}{llccccccccccc}
+\toprule
+\multirow{2}{*}{\textbf{Modelos}} & \multirow{2}{*}{\textbf{Métrica}} & \multicolumn{3}{c}{\textbf{Fisher}} & \multicolumn{3}{c}{\textbf{MI}} & \multicolumn{3}{c}{\textbf{mRMR}} & \multicolumn{2}{c}{\textbf{DT}} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}\cmidrule(lr){12-13}
+& & Top-15 & Top-20 & Top-30 & Top-15 & Top-20 & Top-30 & Top-15 & Top-20 & Top-30 & Top-15 & Top-20 \\
+\midrule
+\multirow{2}{*}{DT} & Sensibilidad & 0.525 & 0.536 & 0.532 & 0.567 & 0.527 & 0.555 & 0.536 & 0.525 & 0.553 & 0.596 & 0.595 \\
+& Especificidad & 0.838 & 0.893 & 0.890 & 0.939 & 0.936 & 0.918 & 0.928 & 0.936 & 0.915 & 0.943 & 0.940 \\
+\midrule
+\multirow{2}{*}{KNN} & Sensibilidad & 0.574 & 0.563 & 0.552 & 0.588 & 0.597 & 0.546 & 0.605 & 0.597 & 0.546 & 0.601 & 0.539 \\
+& Especificidad & 0.793 & 0.819 & 0.849 & 0.823 & 0.815 & 0.869 & 0.817 & 0.815 & 0.869 & 0.892 & 0.906 \\
+\midrule
+\multirow{2}{*}{SVM} & Sensibilidad & 0.616 & 0.637 & 0.648 & 0.665 & 0.672 & 0.698 & 0.659 & 0.672 & 0.698 & 0.730 & 0.739 \\
+& Especificidad & 0.858 & 0.862 & 0.876 & 0.904 & 0.899 & 0.899 & 0.894 & 0.899 & 0.899 & 0.903 & 0.899 \\
+\midrule
+\multirow{2}{*}{RF} & Sensibilidad & 0.716 & 0.726 & 0.732 & 0.739 & 0.744 & 0.779 & 0.740 & 0.736 & 0.769 & 0.795 & 0.812 \\
+& Especificidad & 0.737 & 0.753 & 0.769 & 0.805 & 0.800 & 0.813 & 0.794 & 0.800 & 0.815 & 0.831 & 0.821 \\
+\midrule
+\multirow{2}{*}{XGB} & Sensibilidad & 0.667 & 0.665 & 0.688 & 0.709 & 0.715 & 0.727 & 0.716 & 0.721 & 0.729 & 0.751 & 0.744 \\
+& Especificidad & 0.788 & 0.805 & 0.828 & 0.856 & 0.856 & 0.859 & 0.851 & 0.863 & 0.860 & 0.876 & 0.872 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\FloatBarrier
+
+Las Tablas \ref{tab:comp_global} y \ref{tab:comp_global_extra} presentan los resultados del desempeño de los clasificadores al utilizar las mejores 30 (Top-30), 20 (Top-20) y 15 (Top-15) características obtenidas por los métodos de selección Fisher, MI, mRMR y DT. La Tabla \ref{tab:comp_global} describe la exactitud obtenida por los modelos, mientras que la Tabla \ref{tab:comp_global_extra} resume la sensibilidad y la especificidad. Los resultados de estas tablas muestran que el método de selección de características más efectivo es el basado en árboles de decisión (DT), seguido por MI y mRMR. En particular, los modelos DT, KNN y XGB obtienen su mejor desempeño con el Top-15, y con el Top-20, los modelos SVM y RF. Es importante señalar que SVM y RF alcanzan un desempeño ligeramente menor utilizando el Top-15, esto indica que DT ayuda a generar modelos menos densos. Además, los resultados de estas tablas muestran que MI y mRMR permiten generar modelos RF y XGB con desempeños aceptables al utilizar el Top-30.
+
+\FloatBarrier
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=\textwidth]{\detokenize{Figuras y tablas/Top20_DT_RF.png}}
+\caption{Importancia relativa de las 20 mejores características (Top-20) obtenidas por DT.}
+\label{fig:top20_dt_rf}
+\end{figure}
+\FloatBarrier
+
+En resumen, las características seleccionadas por DT permitieron generar modelos de detección de ansiedad con el mejor desempeño. Las 20 mejores características seleccionadas por DT, de acuerdo con su importancia relativa, se muestran en la Figura \ref{fig:top20_dt_rf}.
+
+\subsection{Experimento 2. Impacto de la selección de características en clasificadores especializados}
+En este experimento se evalúa cómo los distintos métodos de selección de características afectan el desempeño de clasificadores especializados por tipo de característica (bandas y familias derivadas). En este experimento se comparan cuatro métodos de selección de características (Fisher, MI, mRMR y DT) por su capacidad para construir dos tipos de modelos de detección de ansiedad. El primer modelo (considerado como modelo base) se genera al utilizar 32 características, y el segundo (modelo de comparación), al utilizar las 8 mejores características obtenidas por cada método de selección.
+
+En las Tablas~\ref{tab:comp_alpha}, \ref{tab:comp_beta} y \ref{tab:comp_delta} se presentan los resultados del desempeño de los modelos especializados para las bandas alfa, beta y delta, respectivamente. Estas tablas describen el desempeño obtenido para los modelos base generados a partir de todas las características disponibles para cada banda (Top-32), así como para los modelos de comparación generados al utilizar las 8 mejores características obtenidas por los métodos de selección (Top-8).
+
+Los resultados de estas tablas indican que los mejores modelos base para la banda alfa son los obtenidos con XGB. Asimismo, mRMR identifica las mejores 8 características, permitiendo obtener modelos menos densos. Por otra parte, los resultados de la Tabla~\ref{tab:comp_beta} muestran que los mejores modelos base también corresponden a XGB, y que el método de selección DT permite generar modelos menos densos para todos los clasificadores. Aunque es importante señalar que mRMR identificó las 8 mejores características para generar un modelo XGB con el mejor desempeño. En el caso de los modelos especializados de la banda delta, los resultados de la Tabla~\ref{tab:comp_delta} indican que los mejores modelos base son para XGB y que los métodos de selección DT y mRMR permiten generar modelos menos densos con solo 8 características.
+
+En resumen, los mejores modelos especializados se obtienen para las bandas alfa y delta, utilizando características seleccionadas por mRMR para alfa y por DT para delta. Las 8 mejores características identificadas por mRMR para la banda alfa se muestran en la Figura~\ref{fig:top8_mrmr_alpha}, mientras que las 8 mejores características identificadas por DT para la banda delta se presentan en la Figura~\ref{fig:top8_dt_delta}.
+
+\begin{table*}[!htbp]
+\centering
+\caption{Desempeño alcanzado por los modelos especializados para la banda alfa.}
+\label{tab:comp_alpha}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1}
+\resizebox{1\textwidth}{!}{%
+\begin{tabular}{llcccccccc}
+\toprule
+\multirow{2}{*}{\textbf{Modelos}} & \multirow{2}{*}{\textbf{Métrica}} & \multicolumn{2}{c}{\textbf{Fisher}} & \multicolumn{2}{c}{\textbf{MI}} & \multicolumn{2}{c}{\textbf{mRMR}} & \multicolumn{2}{c}{\textbf{DT}} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}
+& & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 \\
+\midrule
+\multirow{3}{*}{DT} & Exactitud & 0.622 & 0.617 & 0.620 & 0.648 & 0.620 & \textbf{0.653} & 0.621 & 0.648 \\
+ & Sensibilidad & 0.398 & 0.474 & 0.396 & 0.461 & 0.397 & 0.450 & 0.398 & 0.434 \\
+ & Especificidad & 0.919 & 0.806 & 0.916 & 0.894 & 0.916 & 0.921 & 0.916 & 0.931 \\
+\midrule
+\multirow{3}{*}{KNN} & Exactitud & 0.652 & 0.615 & 0.652 & 0.652 & 0.652 & \textbf{0.662} & 0.652 & 0.656 \\
+ & Sensibilidad & 0.532 & 0.568 & 0.532 & 0.618 & 0.532 & 0.584 & 0.532 & 0.605 \\
+ & Especificidad & 0.812 & 0.677 & 0.812 & 0.697 & 0.812 & 0.765 & 0.812 & 0.724 \\
+\midrule
+\multirow{3}{*}{SVM} & Exactitud & 0.740 & 0.650 & 0.740 & 0.693 & 0.740 & \textbf{0.712} & 0.740 & 0.707 \\
+ & Sensibilidad & 0.661 & 0.534 & 0.661 & 0.600 & 0.661 & 0.618 & 0.661 & 0.599 \\
+ & Especificidad & 0.845 & 0.805 & 0.845 & 0.816 & 0.845 & 0.835 & 0.845 & 0.850 \\
+\midrule
+\multirow{3}{*}{XGB} & Exactitud & 0.779 & 0.684 & 0.779 & 0.714 & 0.779 & \textbf{0.748} & 0.779 & 0.740 \\
+ & Sensibilidad & 0.770 & 0.685 & 0.770 & 0.709 & 0.769 & 0.711 & 0.769 & 0.712 \\
+ & Especificidad & 0.791 & 0.683 & 0.791 & 0.721 & 0.791 & 0.796 & 0.792 & 0.778 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\begin{table*}[!htbp]
+\centering
+\caption{Desempeño alcanzado por los modelos especializados para la banda beta.}
+\label{tab:comp_beta}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1}
+\resizebox{1\textwidth}{!}{%
+\begin{tabular}{llcccccccc}
+\toprule
+\multirow{2}{*}{\textbf{Modelos}} & \multirow{2}{*}{\textbf{Métrica}} & \multicolumn{2}{c}{\textbf{Fisher}} & \multicolumn{2}{c}{\textbf{MI}} & \multicolumn{2}{c}{\textbf{mRMR}} & \multicolumn{2}{c}{\textbf{DT}} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}
+& & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 \\
+\midrule
+\multirow{3}{*}{DT} & Exactitud & 0.625 & 0.616 & 0.625 & 0.618 & 0.626 & 0.604 & 0.625 & \textbf{0.653} \\
+ & Sensibilidad & 0.482 & 0.504 & 0.482 & 0.397 & 0.482 & 0.352 & 0.482 & 0.464 \\
+ & Especificidad & 0.815 & 0.765 & 0.815 & 0.911 & 0.815 & 0.936 & 0.815 & 0.903 \\
+\midrule
+\multirow{3}{*}{KNN} & Exactitud & 0.633 & 0.596 & 0.633 & 0.624 & 0.633 & 0.635 & 0.633 & \textbf{0.644} \\
+ & Sensibilidad & 0.539 & 0.571 & 0.539 & 0.583 & 0.539 & 0.578 & 0.539 & 0.615 \\
+ & Especificidad & 0.757 & 0.630 & 0.757 & 0.678 & 0.757 & 0.710 & 0.757 & 0.683 \\
+\midrule
+\multirow{3}{*}{SVM} & Exactitud & 0.705 & 0.645 & 0.705 & 0.648 & 0.705 & \textbf{0.689} & 0.705 & 0.677 \\
+ & Sensibilidad & 0.584 & 0.488 & 0.584 & 0.505 & 0.584 & 0.557 & 0.584 & 0.550 \\
+ & Especificidad & 0.865 & 0.852 & 0.865 & 0.837 & 0.865 & 0.864 & 0.865 & 0.844 \\
+\midrule
+\multirow{3}{*}{XGB} & Exactitud & 0.775 & 0.690 & 0.777 & 0.700 & 0.776 & \textbf{0.727} & 0.776 & 0.724 \\
+ & Sensibilidad & 0.772 & 0.698 & 0.774 & 0.712 & 0.773 & 0.699 & 0.773 & 0.720 \\
+ & Especificidad & 0.780 & 0.681 & 0.780 & 0.685 & 0.781 & 0.764 & 0.781 & 0.730 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+
+\begin{table*}[!htbp]
+\centering
+\caption{Desempeño alcanzado por los modelos especializados para la banda delta.}
+\label{tab:comp_delta}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1}
+\resizebox{1\textwidth}{!}{%
+\begin{tabular}{llcccccccc}
+\toprule
+\multirow{2}{*}{\textbf{Modelos}} & \multirow{2}{*}{\textbf{Métrica}} & \multicolumn{2}{c}{\textbf{Fisher}} & \multicolumn{2}{c}{\textbf{MI}} & \multicolumn{2}{c}{\textbf{mRMR}} & \multicolumn{2}{c}{\textbf{DT}} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}
+& & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 \\
+\midrule
+\multirow{3}{*}{DT} & Exactitud & 0.680 & 0.651 & 0.679 & 0.666 & 0.679 & 0.679 & 0.679 & \textbf{0.686} \\
+ & Sensibilidad & 0.495 & 0.510 & 0.494 & 0.477 & 0.494 & 0.541 & 0.495 & 0.498 \\
+ & Especificidad & 0.924 & 0.838 & 0.922 & 0.916 & 0.923 & 0.862 & 0.923 & 0.934 \\
+\midrule
+\multirow{3}{*}{KNN} & Exactitud & 0.656 & 0.650 & 0.656 & 0.647 & 0.656 & 0.658 & 0.656 & \textbf{0.683} \\
+ & Sensibilidad & 0.520 & 0.606 & 0.520 & 0.599 & 0.520 & 0.581 & 0.520 & 0.625 \\
+ & Especificidad & 0.834 & 0.706 & 0.834 & 0.710 & 0.834 & 0.760 & 0.834 & 0.759 \\
+\midrule
+\multirow{3}{*}{SVM} & Exactitud & 0.722 & 0.680 & 0.722 & 0.675 & 0.722 & 0.710 & 0.722 & \textbf{0.728} \\
+ & Sensibilidad & 0.613 & 0.540 & 0.613 & 0.518 & 0.613 & 0.602 & 0.613 & 0.629 \\
+ & Especificidad & 0.866 & 0.865 & 0.866 & 0.881 & 0.866 & 0.853 & 0.866 & 0.858 \\
+\midrule
+\multirow{3}{*}{XGB} & Exactitud & 0.776 & 0.707 & 0.776 & 0.714 & 0.776 & 0.749 & 0.775 & \textbf{0.764} \\
+ & Sensibilidad & 0.749 & 0.675 & 0.749 & 0.653 & 0.750 & 0.720 & 0.750 & 0.728 \\
+ & Especificidad & 0.811 & 0.750 & 0.810 & 0.794 & 0.811 & 0.788 & 0.809 & 0.811 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{\detokenize{Figuras y tablas/Top8_mRMR_alpha.png}}
+\caption{Importancia relativa de las 8 mejores características (Top-8) para la banda alfa obtenidas por mRMR.}
+\label{fig:top8_mrmr_alpha}
+\end{figure}
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{\detokenize{Figuras y tablas/Top8_DT_delta.png}}
+\caption{Importancia relativa de las 8 mejores características (Top-8) para la banda delta obtenidas por DT.}
+\label{fig:top8_dt_delta}
+\end{figure}
+\FloatBarrier
+
+La Tabla~\ref{tab:comp_ratios} describe el desempeño de los modelos especializados construidos a partir de razones espectrales. En particular, esta tabla incluye el desempeño alcanzado por los clasificadores al utilizar las 8 y 32 mejores características, del total de 96 razones espectrales, identificadas por los métodos de selección. En esta tabla se puede observar que todos los métodos de selección ayudaron a construir el mejor modelo XGB de detección de ansiedad usando 32 y 8 características, siendo DT el método de selección que permitió generar estos modelos. Además, los resultados de esta tabla también resaltan que mRMR permitió generar modelos DT y KNN menos densos y con mejor desempeño.
+
+\FloatBarrier
+\begin{table*}[!htbp]
+\centering
+\caption{Desempeño alcanzado por los modelos especializados para razones espectrales.}
+\label{tab:comp_ratios}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1}
+\resizebox{1\textwidth}{!}{%
+\begin{tabular}{llcccccccc}
+\toprule
+\multirow{2}{*}{\textbf{Modelos}} & \multirow{2}{*}{\textbf{Métrica}} & \multicolumn{2}{c}{\textbf{Fisher}} & \multicolumn{2}{c}{\textbf{MI}} & \multicolumn{2}{c}{\textbf{mRMR}} & \multicolumn{2}{c}{\textbf{DT}} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}
+& & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 \\
+\midrule
+\multirow{3}{*}{DT} & Exactitud & 0.557 & 0.579 & 0.550 & 0.586 & 0.550 & \textbf{0.613} & 0.576 & 0.596 \\
+ & Sensibilidad & 0.351 & 0.420 & 0.343 & 0.425 & 0.335 & 0.466 & 0.442 & 0.494 \\
+ & Especificidad & 0.831 & 0.789 & 0.824 & 0.798 & 0.834 & 0.807 & 0.754 & 0.731 \\
+\midrule
+\multirow{3}{*}{KNN} & Exactitud & 0.563 & 0.594 & 0.559 & 0.594 & 0.561 & 0.589 & 0.565 & \textbf{0.602} \\
+ & Sensibilidad & 0.499 & 0.592 & 0.483 & 0.619 & 0.475 & 0.595 & 0.493 & 0.588 \\
+ & Especificidad & 0.647 & 0.596 & 0.660 & 0.560 & 0.676 & 0.581 & 0.660 & 0.620 \\
+\midrule
+\multirow{3}{*}{SVM} & Exactitud & 0.620 & 0.626 & 0.646 & 0.636 & 0.661 & 0.646 & 0.670 & \textbf{0.659} \\
+ & Sensibilidad & 0.530 & 0.531 & 0.564 & 0.586 & 0.576 & 0.603 & 0.584 & 0.573 \\
+ & Especificidad & 0.739 & 0.753 & 0.756 & 0.702 & 0.774 & 0.702 & 0.783 & 0.772 \\
+\midrule
+\multirow{3}{*}{XGB} & Exactitud & 0.703 & 0.633 & 0.703 & 0.646 & 0.703 & 0.667 & 0.703 & \textbf{0.675} \\
+ & Sensibilidad & 0.746 & 0.701 & 0.746 & 0.726 & 0.746 & 0.730 & 0.746 & 0.714 \\
+ & Especificidad & 0.645 & 0.543 & 0.645 & 0.540 & 0.645 & 0.585 & 0.645 & 0.623 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+\FloatBarrier
+
+La Tabla~\ref{tab:comp_asimetria} describe el desempeño de los modelos especializados construidos a partir de asimetrías hemisféricas. En esta tabla se incluye el desempeño alcanzado por los clasificadores al utilizar las 8 y 32 mejores características, del total de 50 asimetrías hemisféricas identificadas por los métodos de selección. Los resultados de esta tabla muestran que los métodos de selección Fisher, MI y mRMR no permiten generar modelos DT y KNN con buen desempeño en la detección de ansiedad. Por otra parte, los resultados de esta tabla indican que los mejores modelos XGB y SVM al utilizar las 32 mejores características identificadas por DT.
+
+\FloatBarrier
+\begin{table*}[!htbp]
+\centering
+\caption{Desempeño alcanzado por los modelos especializados para asimetría hemisférica.}
+\label{tab:comp_asimetria}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{1}
+\resizebox{1\textwidth}{!}{%
+\begin{tabular}{llcccccccc}
+\toprule
+\multirow{2}{*}{\textbf{Modelos}} & \multirow{2}{*}{\textbf{Métrica}} & \multicolumn{2}{c}{\textbf{Fisher}} & \multicolumn{2}{c}{\textbf{MI}} & \multicolumn{2}{c}{\textbf{mRMR}} & \multicolumn{2}{c}{\textbf{DT}} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-10}
+& & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 & Top-32 & Top-8 \\
+\midrule
+\multirow{3}{*}{DT} & Exactitud & 0.624 & 0.589 & 0.602 & 0.641 & 0.595 & \textbf{0.642} & 0.611 & 0.634 \\
+ & Sensibilidad & 0.368 & 0.361 & 0.354 & 0.462 & 0.368 & 0.425 & 0.350 & 0.387 \\
+ & Especificidad & 0.962 & 0.891 & 0.930 & 0.878 & 0.894 & 0.930 & 0.956 & 0.960 \\
+\midrule
+\multirow{3}{*}{KNN} & Exactitud & 0.589 & 0.617 & 0.563 & 0.617 & 0.566 & 0.616 & 0.589 & \textbf{0.634} \\
+ & Sensibilidad & 0.352 & 0.562 & 0.308 & 0.555 & 0.316 & 0.543 & 0.345 & 0.585 \\
+ & Especificidad & 0.902 & 0.689 & 0.899 & 0.699 & 0.897 & 0.713 & 0.913 & 0.697 \\
+\midrule
+\multirow{3}{*}{SVM} & Exactitud & 0.749 & 0.670 & 0.747 & 0.675 & 0.759 & \textbf{0.688} & 0.753 & 0.688 \\
+ & Sensibilidad & 0.673 & 0.555 & 0.667 & 0.561 & 0.681 & 0.583 & 0.678 & 0.593 \\
+ & Especificidad & 0.849 & 0.822 & 0.854 & 0.827 & 0.861 & 0.827 & 0.852 & 0.814 \\
+\midrule
+\multirow{3}{*}{XGB} & Exactitud & 0.775 & 0.710 & 0.769 & 0.714 & 0.777 & 0.716 & 0.775 & \textbf{0.712} \\
+ & Sensibilidad & 0.770 & 0.691 & 0.765 & 0.687 & 0.771 & 0.691 & 0.772 & 0.684 \\
+ & Especificidad & 0.782 & 0.734 & 0.773 & 0.751 & 0.784 & 0.751 & 0.778 & 0.748 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}
+\FloatBarrier
+
+\section{Conclusiones}
+Esta investigación evalúa cuatro métodos de selección de características en su capacidad para identificar características espectrales relevantes de señales de EEG que permitan construir modelos para la detección de ansiedad en jóvenes adultos. Los resultados muestran que los métodos basados en árboles de decisión (DT) permiten identificar las 15 mejores características espectrales para generar modelos de XGB, SVM y RF menos densos con buen desempeño.
+
+Para el caso de los modelos especializados, los métodos de selección mRMR y DT permitieron generar modelos con un buen desempeño para las bandas alfa y delta, respectivamente. Para estos modelos destaca la selección de 8 características de la banda alfa obtenidas por mRMR y de la banda delta obtenidas por DT, que permitieron generar modelos menos densos con un desempeño comparable al modelo base. Un hallazgo similar se observó en los modelos especializados para razones espectrales, en donde destacaron los métodos de selección DT y mRMR en la identificación de las características que permitieron generar modelos menos densos. Finalmente, para los modelos especializados por asimetrías hemisféricas, los métodos de selección no identificaron características relevantes que ayudaran en la construcción de modelos de DT y KNN para la detección de ansiedad. Aunque DT permitió identificar las mejores características de asimetría hemisférica para generar modelos XGB y SVM con un buen desempeño.
+
+En síntesis, la discriminación entre relajación y ansiedad depende de la combinación de diversos tipos de características espectrales, primordialmente de las bandas alfa y delta. En consecuencia, el aporte principal de esta investigación no es únicamente identificar clasificadores competitivos, sino mostrar que una selección de características adecuada puede ayudar a mejorar la interpretabilidad del modelo.
+
+\section*{Agradecimientos}
+Los autores agradecen enormemente a la Secretaría de Ciencia, Humanidades, Tecnología e Innovación (SECIHTI), quien ha impulsado esta investigación a través de la beca de maestría otorgada. Este apoyo ha sido fundamental para el desarrollo de este trabajo.
+
+En agradecimiento a la Dra. Verónica Rodríguez López, por su valiosa colaboración y asesoría. Su experiencia y dedicación han sido esenciales para esta investigación.
+
+Agradezco también a todos los amigos y familiares que me han apoyado durante este proceso, brindándome ánimo y comprensión en los momentos difíciles.
+
+\bibliographystyle{unsrt}
+\bibliography{Referencias}
+\end{document}

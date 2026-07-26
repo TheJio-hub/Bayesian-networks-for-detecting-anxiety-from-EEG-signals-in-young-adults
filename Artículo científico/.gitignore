@@ -1,0 +1,21 @@
+# LaTeX temporary/build artifacts
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.log
+*.lot
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+
+# LaTeX intermediary outputs
+*.dvi
+*.xdv
+
+# macOS metadata
+.DS_Store
