@@ -1,22 +1,31 @@
 import os
 import warnings
+
 warnings.filterwarnings('ignore')
 
-import pandas as pd
-import numpy as np
 import matplotlib
+import numpy as np
+import pandas as pd
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import networkx as nx
-from tqdm.auto import tqdm as _tqdm
+from pgmpy.causal_discovery import GES, PC
+from pgmpy.estimators import BayesianEstimator
+from pgmpy.metrics import CorrelationScore, FisherC
+from pgmpy.models import DiscreteBayesianNetwork
+from pgmpy.sampling import BayesianModelSampling
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+)
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.preprocessing import KBinsDiscretizer
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-from pgmpy.causal_discovery import GES, PC
-from pgmpy.models import DiscreteBayesianNetwork
-from pgmpy.metrics import CorrelationScore, FisherC
-from pgmpy.estimators import BayesianEstimator
-from pgmpy.sampling import BayesianModelSampling
+from tqdm.auto import tqdm as _tqdm
+
 
 def tqdm(*args, **kwargs):
     kwargs.setdefault('mininterval', 1.5)

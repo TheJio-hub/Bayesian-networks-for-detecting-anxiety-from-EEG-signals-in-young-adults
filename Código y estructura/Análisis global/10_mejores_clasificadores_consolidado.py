@@ -1,7 +1,7 @@
-import pandas as pd
 import os
-import numpy as np
 from glob import glob
+
+import pandas as pd
 from tqdm.auto import tqdm as _tqdm
 
 
@@ -106,7 +106,7 @@ def generar_csv_mejores_clasificadores():
                         })
                     
                     break
-        except Exception as e:
+        except Exception:
             pass
     
     df_todos = pd.DataFrame(todos_datos)
@@ -194,7 +194,7 @@ def generar_csv_mejores_clasificadores():
     ans_val = resultado_ansiedad[resultado_ansiedad['Conjunto'] == 'Validación']
     ans_ent = resultado_ansiedad[resultado_ansiedad['Conjunto'] == 'Entrenamiento']
     
-    print(f"\n🔴 ANSIEDAD:")
+    print("\n🔴 ANSIEDAD:")
     print(f"   Validación   - Sensibilidad: {ans_val['Sensibilidad'].mean():.4f}, Exactitud: {ans_val['Exactitud'].mean():.4f}")
     print(f"   Entrenamiento - Sensibilidad: {ans_ent['Sensibilidad'].mean():.4f}, Exactitud: {ans_ent['Exactitud'].mean():.4f}")
     print(f"   Sobreajuste   - Δ Sensibilidad: {(ans_ent['Sensibilidad'].mean() - ans_val['Sensibilidad'].mean()):.4f}")
@@ -202,7 +202,7 @@ def generar_csv_mejores_clasificadores():
     no_ans_val = resultado_no_ansiedad[resultado_no_ansiedad['Conjunto'] == 'Validación']
     no_ans_ent = resultado_no_ansiedad[resultado_no_ansiedad['Conjunto'] == 'Entrenamiento']
     
-    print(f"\n🟢 NO ANSIEDAD:")
+    print("\n🟢 NO ANSIEDAD:")
     print(f"   Validación   - Sensibilidad: {no_ans_val['Sensibilidad'].mean():.4f}, Exactitud: {no_ans_val['Exactitud'].mean():.4f}")
     print(f"   Entrenamiento - Sensibilidad: {no_ans_ent['Sensibilidad'].mean():.4f}, Exactitud: {no_ans_ent['Exactitud'].mean():.4f}")
     print(f"   Sobreajuste   - Δ Sensibilidad: {(no_ans_ent['Sensibilidad'].mean() - no_ans_val['Sensibilidad'].mean()):.4f}")

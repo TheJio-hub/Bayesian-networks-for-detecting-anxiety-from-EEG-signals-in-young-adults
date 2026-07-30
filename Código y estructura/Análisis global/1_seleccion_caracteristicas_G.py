@@ -1,7 +1,7 @@
-import pandas as pd
-import numpy as np
 import os
-import time
+
+import numpy as np
+import pandas as pd
 from tqdm.auto import tqdm as _tqdm
 
 
@@ -10,11 +10,10 @@ def tqdm(*args, **kwargs):
     kwargs.setdefault('miniters', 1)
     return _tqdm(*args, **kwargs)
 
-from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from sklearn.tree import DecisionTreeClassifier, export_text
-from sklearn.model_selection import LeaveOneGroupOut, cross_validate
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
 
 def calcular_fisher_score(X, y):
     clases = np.unique(y)

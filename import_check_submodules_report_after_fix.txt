@@ -1,0 +1,7 @@
+Interpreter: /Users/jovanigallegos/miniforge3/envs/bn_anxiety_env/bin/python
+Total modules/submodules: 37
+
+Failed imports:
+pgmpy.estimators -> module 'numpy' has no attribute 'typing'
+pgmpy.models -> module 'numpy' has no attribute 'typing'
+pgmpy.sampling -> module 'numpy' has no attribute 'typing'

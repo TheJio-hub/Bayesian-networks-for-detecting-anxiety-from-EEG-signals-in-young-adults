@@ -1,0 +1,18 @@
+name: bn_anxiety_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+    - mne==1.4.1
+    - mne-features==0.7.0
+    - numpy==1.24.4
+    - pandas==2.0.3
+    - scipy==1.10.1
+    - openpyxl==3.1.2
+    - xlrd==2.0.1
+    - pyarrow==11.0.0
+    - tqdm==4.65.0
+    - xgboost==1.7.6
+    - pgmpy==1.1.2

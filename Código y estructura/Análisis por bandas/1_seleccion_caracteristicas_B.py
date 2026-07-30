@@ -1,6 +1,7 @@
-import pandas as pd
-import numpy as np
 import os
+
+import numpy as np
+import pandas as pd
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from sklearn.tree import DecisionTreeClassifier
 from tqdm.auto import tqdm as _tqdm
@@ -144,8 +145,7 @@ def guardar_ranking_mrmr(X, y, ruta_mrmr, proporcion=0.25, banda=None):
         n_seleccion = X.shape[1]
     else:
         n_seleccion = int(X.shape[1] * proporcion)
-    if n_seleccion < 1:
-        n_seleccion = 1
+    n_seleccion = max(n_seleccion, 1)
 
     df_mrmr = seleccion_mrmr(X, y, n_seleccion)
     df_mrmr.to_csv(ruta_mrmr, index=False)

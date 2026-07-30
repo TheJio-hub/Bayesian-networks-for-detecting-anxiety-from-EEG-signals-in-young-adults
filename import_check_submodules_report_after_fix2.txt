@@ -1,0 +1,4 @@
+Interpreter: /Users/jovanigallegos/miniforge3/envs/bn_anxiety_env/bin/python
+Total modules/submodules: 37
+
+Failed imports:

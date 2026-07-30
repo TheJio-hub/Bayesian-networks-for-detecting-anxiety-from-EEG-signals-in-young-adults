@@ -11,11 +11,13 @@ def tqdm(*args, **kwargs):
     return _tqdm(*args, **kwargs)
 
 
-from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    precision_recall_fscore_support,
+)
 from sklearn.model_selection import KFold, LeaveOneGroupOut
-
 from xgboost import XGBClassifier
-
 
 BLOQUES = ["Alpha", "Beta", "Delta", "Asimetria", "Ratios"]
 METODOS = ["Fisher", "Mutual_Info", "mRMR", "DT"]

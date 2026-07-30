@@ -1,26 +1,35 @@
 import os
 import warnings
+
 warnings.filterwarnings('ignore')
 
-import pandas as pd
-import numpy as np
-import networkx as nx
 import matplotlib
+import networkx as nx
+import numpy as np
+import pandas as pd
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm as _tqdm
+
 
 def tqdm(*args, **kwargs):
     kwargs.setdefault('mininterval', 1.5)
     kwargs.setdefault('miniters', 1)
     return _tqdm(*args, **kwargs)
 
-from sklearn.model_selection import LeaveOneGroupOut
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-from pgmpy.causal_discovery import PC, GES
-from pgmpy.structure_score import BICCondGauss
+from pgmpy.causal_discovery import GES, PC
 from pgmpy.metrics import CorrelationScore, FisherC
+from pgmpy.structure_score import BICCondGauss
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+)
+from sklearn.model_selection import LeaveOneGroupOut
 
 CALL_COUNTER = 0
 

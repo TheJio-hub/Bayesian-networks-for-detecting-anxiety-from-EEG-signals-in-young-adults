@@ -9,13 +9,12 @@ Uso:
 
 Requisitos: pandas, matplotlib
 """
+import argparse
 import os
 import sys
-import argparse
-from typing import Optional
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 OUT_DIR = os.path.join(os.path.dirname(__file__), 'Figuras y tablas')
@@ -47,7 +46,7 @@ def apply_bar_style(ax):
     ax.set_facecolor('white')
 
 
-def plot_horizontal_bar(df: pd.DataFrame, x_col: str, y_col: str, out_fn: str, xlabel: str = 'Importancia', color: str = 'tab:blue', annotate: bool = True, fig_height: Optional[float] = None):
+def plot_horizontal_bar(df: pd.DataFrame, x_col: str, y_col: str, out_fn: str, xlabel: str = 'Importancia', color: str = 'tab:blue', annotate: bool = True, fig_height: float | None = None):
     df_plot = df.copy()
     # ordenar ascendente para que la mayor importancia quede arriba en barh
     df_plot = df_plot.sort_values(x_col, ascending=True)
@@ -82,7 +81,7 @@ def plot_horizontal_bar(df: pd.DataFrame, x_col: str, y_col: str, out_fn: str, x
     plt.close(fig)
 
 
-def generate_top20_dt_global(ranking_csv: str = GLOBAL_RANKING_CSV, out_dir: Optional[str] = None):
+def generate_top20_dt_global(ranking_csv: str = GLOBAL_RANKING_CSV, out_dir: str | None = None):
     out_dir = out_dir or OUT_DIR
     ranking = load_csv(ranking_csv)
 
@@ -96,7 +95,7 @@ def generate_top20_dt_global(ranking_csv: str = GLOBAL_RANKING_CSV, out_dir: Opt
     return fn_dt
 
 
-def generate(alpha_csv: str = ALPHA_CSV, delta_csv: str = DELTA_CSV, ranking_csv: str = GLOBAL_RANKING_CSV, out_dir: Optional[str] = None):
+def generate(alpha_csv: str = ALPHA_CSV, delta_csv: str = DELTA_CSV, ranking_csv: str = GLOBAL_RANKING_CSV, out_dir: str | None = None):
     ensure_outdir()
     out_dir = out_dir or OUT_DIR
 

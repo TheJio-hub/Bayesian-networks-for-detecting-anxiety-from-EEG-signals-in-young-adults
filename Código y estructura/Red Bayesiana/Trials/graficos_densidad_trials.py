@@ -1,14 +1,16 @@
 import os
 import warnings
+
 warnings.filterwarnings('ignore')
 
-import pandas as pd
-import numpy as np
-import seaborn as sns
 import matplotlib
+import pandas as pd
+import seaborn as sns
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm as _tqdm
+
 
 def tqdm(*args, **kwargs):
     kwargs.setdefault('mininterval', 1.5)
@@ -74,7 +76,7 @@ def principal():
                 )
                 
                 plt.title(f"Distribución de Densidad: {feat} (Trial {trial})", fontsize=12, fontweight='bold', pad=15)
-                plt.xlabel(f"Valor Normalizado (Z-Score)", fontsize=10)
+                plt.xlabel("Valor Normalizado (Z-Score)", fontsize=10)
                 plt.ylabel("Densidad", fontsize=10)
                 plt.tight_layout()
                 

@@ -1,6 +1,6 @@
-import pandas as pd
-import numpy as np
 import os
+
+import pandas as pd
 from tqdm.auto import tqdm as _tqdm
 
 
@@ -10,8 +10,13 @@ def tqdm(*args, **kwargs):
     return _tqdm(*args, **kwargs)
 
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import LeaveOneGroupOut, KFold
-from sklearn.metrics import precision_recall_fscore_support, accuracy_score, confusion_matrix
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    precision_recall_fscore_support,
+)
+from sklearn.model_selection import KFold, LeaveOneGroupOut
+
 
 def obtener_top_n_por_criterio(df_ranking, criterio, n=30):
     if criterio == 'mRMR':
@@ -19,9 +24,7 @@ def obtener_top_n_por_criterio(df_ranking, criterio, n=30):
             mrmr_col = 'mRMR_40_Rank'
         elif n >= 30 and 'mRMR_30_Rank' in df_ranking.columns:
             mrmr_col = 'mRMR_30_Rank'
-        elif n >= 20 and 'mRMR_20_Rank' in df_ranking.columns:
-            mrmr_col = 'mRMR_20_Rank'
-        elif n >= 15 and 'mRMR_20_Rank' in df_ranking.columns:
+        elif n >= 20 and 'mRMR_20_Rank' in df_ranking.columns or n >= 15 and 'mRMR_20_Rank' in df_ranking.columns:
             mrmr_col = 'mRMR_20_Rank'
         elif 'mRMR_10_Rank' in df_ranking.columns:
             mrmr_col = 'mRMR_10_Rank'

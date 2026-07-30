@@ -1,0 +1,10 @@
+Cargando módulo original desde: /Users/jovanigallegos/Documents/Maestría/Tesis/Modelos/Bayesian-networks-for-detecting-anxiety-from-EEG-signals-in-young-adults/Código y estructura/Red Bayesiana/Global/4_Red_Mixta_Regional.py
+Leyendo datos: /Users/jovanigallegos/Documents/Maestría/Tesis/Modelos/Bayesian-networks-for-detecting-anxiety-from-EEG-signals-in-young-adults/Resultados/Exploratorio/datos_completos_normalizados.parquet
+Usando sujetos de desarrollo (reducido): [20 17 16 27  5 13 38 28 40  7 26 10]
+Caracteristicas usadas: ['Reg_Frontal', 'Reg_Central', 'Reg_Temporal', 'Reg_Parietal', 'Reg_Occipital']
+Iniciando ejecución de ejecutar_loso con algoritmo GES...
+LOSO Regional GES: 0it [00:00, ?it/s]LOSO Regional GES: 4it [00:01,  2.52it/s]LOSO Regional GES: 9it [00:03,  2.73it/s]                                         Finalizado. Resultados:
+Acc: 0.6527777777777778
+Prec: 0.8560747663551402
+Sens: 0.6058201058201058
+F1: 0.7095274980635168

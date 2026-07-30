@@ -19,7 +19,7 @@
    * Caracterizar las variables promediando las potencias de los canales dentro de cada región.
    * Objetivo: Reducir drásticamente la dimensionalidad del espacio de características (evitando sobreajuste) y dotar a la estructura causal de una interpretación neurofisiológica directa (ej. "Lóbulo Frontal -> Lóbulo Parietal" en lugar de canales específicos).
 
-4. Construcción de la Red Bayesiana Definitiva (Ensamble de Conocimiento)
+4. Construcción de la Red de ensamble de Conocimiento
    Una vez identificados los mejores modelos de la fase global y por tareas, desarrollar el modelo definitivo mediante uno de los siguientes enfoques de fusión:
    * A. Ensamble Ponderado de Probabilidades:
      - P_final = w * P_tarea_especifica + (1 - w) * P_global.

@@ -1,0 +1,9 @@
+Calculando potencias espectrales promedio por regiones de la corteza...
+Nodos de regiones causales definidos: ['Reg_Frontal', 'Reg_Central', 'Reg_Temporal', 'Reg_Parietal', 'Reg_Occipital']
+
+Entrenando Red Mixta Regional usando algoritmo: PC...
+LOSO Regional PC: 0it [00:00, ?it/s]LOSO Regional PC: 8it [00:01,  4.99it/s]LOSO Regional PC: 16it [00:03,  5.04it/s]LOSO Regional PC: 24it [00:04,  4.86it/s]LOSO Regional PC: 30it [00:06,  4.47it/s]                                         Guardando grafo causal regional en: Resultados/Red Bayesiana/Global/Regional/Red_Mixta_Regional_PC.png
+
+Entrenando Red Mixta Regional usando algoritmo: GES...
+LOSO Regional GES: 0it [00:00, ?it/s]LOSO Regional GES: 2it [00:01,  1.09it/s]LOSO Regional GES: 3it [00:03,  1.28s/it]LOSO Regional GES: 6it [00:05,  1.12it/s]LOSO Regional GES: 9it [00:07,  1.21it/s]LOSO Regional GES: 12it [00:09,  1.34it/s]LOSO Regional GES: 15it [00:11,  1.42it/s]LOSO Regional GES: 18it [00:13,  1.42it/s]LOSO Regional GES: 20it [00:15,  1.36it/s]LOSO Regional GES: 22it [00:17,  1.30it/s]LOSO Regional GES: 25it [00:19,  1.33it/s]LOSO Regional GES: 28it [00:21,  1.35it/s]/Users/jovanigallegos/miniforge3/envs/bn_anxiety_env/lib/python3.10/multiprocessing/resource_tracker.py:224: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

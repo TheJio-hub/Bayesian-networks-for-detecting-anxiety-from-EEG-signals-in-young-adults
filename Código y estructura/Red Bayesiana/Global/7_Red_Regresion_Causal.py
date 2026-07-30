@@ -1,22 +1,30 @@
 import os
 import warnings
+
 warnings.filterwarnings('ignore')
 
-import pandas as pd
-import numpy as np
 import matplotlib
+import numpy as np
+import pandas as pd
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import networkx as nx
-from tqdm.auto import tqdm as _tqdm
-from sklearn.model_selection import LeaveOneGroupOut
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
-from pgmpy.causal_discovery import GES, PC
-from pgmpy.models import LinearGaussianBayesianNetwork
 from pgmpy.base import DAG
-from pgmpy.prediction import NaiveAdjustmentRegressor
+from pgmpy.causal_discovery import GES, PC
 from pgmpy.metrics import CorrelationScore, FisherC
+from pgmpy.prediction import NaiveAdjustmentRegressor
 from pgmpy.structure_score import BICCondGauss
+from sklearn.metrics import (
+    accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+)
+from sklearn.model_selection import LeaveOneGroupOut
+from tqdm.auto import tqdm as _tqdm
+
 
 class RobustBICCondGauss(BICCondGauss):
     def _local_score(self, variable, parents):
