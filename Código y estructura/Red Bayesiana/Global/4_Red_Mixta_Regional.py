@@ -31,7 +31,30 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import LeaveOneGroupOut
 
+import pgmpy.base.DAG
+import pgmpy.base.PDAG
+
+original_to_pdag = pgmpy.base.DAG.to_pdag
+original_to_cpdag = pgmpy.base.PDAG.to_cpdag
+
 CALL_COUNTER = 0
+
+def patched_to_pdag(self, *args, **kwargs):
+    global CALL_COUNTER
+    CALL_COUNTER += 1
+    if CALL_COUNTER > 150:
+        raise RuntimeError("Bucle infinito detectado en la conversión causal del grafo")
+    return original_to_pdag(self, *args, **kwargs)
+
+def patched_to_cpdag(self, *args, **kwargs):
+    global CALL_COUNTER
+    CALL_COUNTER += 1
+    if CALL_COUNTER > 150:
+        raise RuntimeError("Bucle infinito detectado en la conversión causal del grafo")
+    return original_to_cpdag(self, *args, **kwargs)
+
+pgmpy.base.DAG.to_pdag = patched_to_pdag
+pgmpy.base.PDAG.to_cpdag = patched_to_cpdag
 
 class RobustBICCondGauss(BICCondGauss):
     def _local_score(self, variable, parents):
@@ -402,10 +425,12 @@ def principal():
         fisher_rmsea = np.nan
         if dag_final_A is not None:
             try:
+                CALL_COUNTER = 0
                 cs_val = CorrelationScore(ci_test='pearsonr', significance_level=0.05).evaluate(X=df_train_final_A, causal_graph=dag_final_A)
             except Exception:
                 pass
             try:
+                CALL_COUNTER = 0
                 fisher_p, fisher_rmsea = FisherC(ci_test='pearsonr', compute_rmsea=True, show_progress=False).evaluate(X=df_train_final_A, causal_graph=dag_final_A)
             except Exception:
                 pass

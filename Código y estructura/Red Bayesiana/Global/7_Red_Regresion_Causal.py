@@ -66,6 +66,41 @@ def patched_to_cpdag(self, *args, **kwargs):
 pgmpy.base.DAG.to_pdag = patched_to_pdag
 pgmpy.base.PDAG.to_cpdag = patched_to_cpdag
 
+# --- Parche de Compatibilidad y Clasificación para NaiveAdjustmentRegressor ---
+from sklearn.utils.validation import check_is_fitted
+from sklearn.linear_model import LogisticRegression
+from sklearn.base import clone
+
+def _patched_nar_fit(self, X, y, sample_weight=None):
+    exposure_vars = self.causal_graph.get_role("exposures")
+    outcome_vars = self.causal_graph.get_role("outcomes")
+    adjustment_vars = self.causal_graph.get_role("adjustment")
+    pretreatment_vars = self.causal_graph.get_role("pretreatment")
+    
+    self.exposure_var_ = exposure_vars[0] if len(exposure_vars) > 0 else (X.columns[0] if hasattr(X, 'columns') else "X0")
+    self.outcome_var_ = outcome_vars[0] if len(outcome_vars) > 0 else "Ansiedad"
+    self.adjustment_vars_ = adjustment_vars
+    self.pretreatment_vars_ = pretreatment_vars
+    self.feature_columns_fit_ = [self.exposure_var_] + adjustment_vars + pretreatment_vars
+    
+    X_features = self._prepare_feature_df(X, required_features=self.feature_columns_fit_)
+    self.estimator_ = LogisticRegression(penalty='l1', solver='liblinear', random_state=42) if self.estimator is None else clone(self.estimator)
+    self.estimator_.fit(X_features, y, sample_weight=sample_weight)
+    return self
+
+def _patched_nar_predict(self, X):
+    check_is_fitted(self, "estimator_")
+    X_filtered = self._prepare_feature_df(X, required_features=self.feature_columns_fit_)
+    if hasattr(self.estimator_, "predict_proba"):
+        predictions = self.estimator_.predict_proba(X_filtered)[:, 1]
+    else:
+        predictions = self.estimator_.predict(X_filtered)
+    return np.asarray(predictions).ravel()
+
+NaiveAdjustmentRegressor.fit = _patched_nar_fit
+NaiveAdjustmentRegressor.predict = _patched_nar_predict
+
+
 def construir_modelo_regresor(dag, mb_features, columna_objetivo):
     if len(mb_features) == 0:
         return None
@@ -80,14 +115,16 @@ def construir_modelo_regresor(dag, mb_features, columna_objetivo):
         exposures = [parents[0]]
         spouses_and_children = [node for node in mb_features if node != parents[0]]
         
-    causal_graph_model = DAG(
-        prediction_subgraph.edges(),
-        roles={
-            "exposures": exposures,
-            "outcomes": [columna_objetivo],
-            "adjustment": spouses_and_children
-        }
-    )
+    causal_graph_model = DAG(prediction_subgraph.edges())
+    for node in prediction_subgraph.nodes():
+        causal_graph_model.add_node(node)
+        
+    for exp in exposures:
+        causal_graph_model.nodes[exp]['roles'] = {'exposures'}
+    causal_graph_model.nodes[columna_objetivo]['roles'] = {'outcomes'}
+    for adj in spouses_and_children:
+        causal_graph_model.nodes[adj]['roles'] = {'adjustment'}
+        
     return causal_graph_model
 
 def graficar_dag(dag, titulo, nombre_archivo):
@@ -207,7 +244,8 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 estimador_A.fit(df_train_A)
                 dag_A = estimador_A.causal_graph_
             else:
-                estimador_A = GES(scoring_method='bic-g', return_type='dag')
+                scoring_fn_A = RobustBICCondGauss(df_train_A)
+                estimador_A = GES(scoring_method=scoring_fn_A, return_type='dag')
                 estimador_A.fit(df_train_A)
                 dag_A = estimador_A.causal_graph_
             mb_features_A = list(dag_A.get_markov_blanket(columna_objetivo)) if columna_objetivo in dag_A.nodes() else []
@@ -217,7 +255,7 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
             
         if causal_graph_model_A is not None and len(causal_graph_model_A.edges()) > 0:
             try:
-                regressor_A = NaiveAdjustmentRegressor(causal_graph=causal_graph_model_A)
+                regressor_A = NaiveAdjustmentRegressor(causal_graph=causal_graph_model_A, estimator=LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
                 regressor_A.fit(df_train_A[mb_features_A], df_train_A[columna_objetivo])
                 pred_A = regressor_A.predict(df_prueba[mb_features_A])
             except Exception:
@@ -233,7 +271,8 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 estimador_B.fit(df_train_B)
                 dag_B = estimador_B.causal_graph_
             else:
-                estimador_B = GES(scoring_method='bic-g', return_type='dag')
+                scoring_fn_B = RobustBICCondGauss(df_train_B)
+                estimador_B = GES(scoring_method=scoring_fn_B, return_type='dag')
                 estimador_B.fit(df_train_B)
                 dag_B = estimador_B.causal_graph_
             mb_features_B = list(dag_B.get_markov_blanket(columna_objetivo)) if columna_objetivo in dag_B.nodes() else []
@@ -243,7 +282,7 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
             
         if causal_graph_model_B is not None and len(causal_graph_model_B.edges()) > 0:
             try:
-                regressor_B = NaiveAdjustmentRegressor(causal_graph=causal_graph_model_B)
+                regressor_B = NaiveAdjustmentRegressor(causal_graph=causal_graph_model_B, estimator=LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
                 regressor_B.fit(df_train_B[mb_features_B], df_train_B[columna_objetivo])
                 pred_B = regressor_B.predict(df_prueba[mb_features_B])
             except Exception:
@@ -259,7 +298,8 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 estimador_C.fit(df_train_C)
                 dag_C = estimador_C.causal_graph_
             else:
-                estimador_C = GES(scoring_method='bic-g', return_type='dag')
+                scoring_fn_C = RobustBICCondGauss(df_train_C)
+                estimador_C = GES(scoring_method=scoring_fn_C, return_type='dag')
                 estimador_C.fit(df_train_C)
                 dag_C = estimador_C.causal_graph_
             mb_features_C = list(dag_C.get_markov_blanket(columna_objetivo)) if columna_objetivo in dag_C.nodes() else []
@@ -269,7 +309,7 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
             
         if causal_graph_model_C is not None and len(causal_graph_model_C.edges()) > 0:
             try:
-                regressor_C = NaiveAdjustmentRegressor(causal_graph=causal_graph_model_C)
+                regressor_C = NaiveAdjustmentRegressor(causal_graph=causal_graph_model_C, estimator=LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
                 regressor_C.fit(df_train_C[mb_features_C], df_train_C[columna_objetivo])
                 pred_C = regressor_C.predict(df_prueba[mb_features_C])
             except Exception:
@@ -317,7 +357,7 @@ def principal():
     
     grupos_desarrollo = df_desarrollo['Sujeto'].values
     
-    tamanos_top = [10, 15, 20]
+    tamanos_top = [10, 15]
     resultados_loso = []
     
     for n_caracteristicas in tamanos_top:
@@ -373,7 +413,7 @@ def principal():
                 
             if causal_model_final_A is not None and len(causal_model_final_A.edges()) > 0:
                 try:
-                    regressor_final_A = NaiveAdjustmentRegressor(causal_graph=causal_model_final_A)
+                    regressor_final_A = NaiveAdjustmentRegressor(causal_graph=causal_model_final_A, estimator=LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
                     regressor_final_A.fit(df_train_final_A[mb_features_final_A], df_train_final_A['Ansiedad'])
                     pred_test_A = regressor_final_A.predict(df_prueba_externa_sub[mb_features_final_A])
                 except Exception:
@@ -400,7 +440,7 @@ def principal():
                 
             if causal_model_final_B is not None and len(causal_model_final_B.edges()) > 0:
                 try:
-                    regressor_final_B = NaiveAdjustmentRegressor(causal_graph=causal_model_final_B)
+                    regressor_final_B = NaiveAdjustmentRegressor(causal_graph=causal_model_final_B, estimator=LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
                     regressor_final_B.fit(df_train_final_B[mb_features_final_B], df_train_final_B['Ansiedad'])
                     pred_test_B = regressor_final_B.predict(df_prueba_externa_sub[mb_features_final_B])
                 except Exception:
@@ -427,7 +467,7 @@ def principal():
                 
             if causal_model_final_C is not None and len(causal_model_final_C.edges()) > 0:
                 try:
-                    regressor_final_C = NaiveAdjustmentRegressor(causal_graph=causal_model_final_C)
+                    regressor_final_C = NaiveAdjustmentRegressor(causal_graph=causal_model_final_C, estimator=LogisticRegression(penalty='l1', solver='liblinear', random_state=42))
                     regressor_final_C.fit(df_train_final_C[mb_features_final_C], df_train_final_C['Ansiedad'])
                     pred_test_C = regressor_final_C.predict(df_prueba_externa_sub[mb_features_final_C])
                 except Exception:
@@ -445,10 +485,12 @@ def principal():
             fisher_rmsea = np.nan
             if dag_final_A is not None:
                 try:
+                    CALL_COUNTER = 0
                     cs_val = CorrelationScore(ci_test='pearsonr', significance_level=0.05).evaluate(X=df_train_final_A, causal_graph=dag_final_A)
                 except Exception:
                     pass
                 try:
+                    CALL_COUNTER = 0
                     fisher_p, fisher_rmsea = FisherC(ci_test='pearsonr', compute_rmsea=True, show_progress=False).evaluate(X=df_train_final_A, causal_graph=dag_final_A)
                 except Exception:
                     pass

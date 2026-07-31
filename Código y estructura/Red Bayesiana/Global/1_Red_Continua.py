@@ -167,7 +167,10 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
         
         global CALL_COUNTER
         
+        # --- Model A ---
+        manta_A = []
         try:
+            global CALL_COUNTER
             CALL_COUNTER = 0
             if algoritmo == "PC":
                 estimador_A = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
@@ -178,15 +181,23 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 estimador_A = GES(scoring_method=scoring_fn, return_type='dag')
                 estimador_A.fit(df_train_A)
                 dag_A = estimador_A.causal_graph_
-            
-            if len(dag_A.edges()) > 0:
-                modelo_A = LinearGaussianBayesianNetwork(dag_A.edges())
-                modelo_A.add_nodes_from(dag_A.nodes())
-                modelo_A.fit(df_train_A)
-                pred_A = modelo_A.predict(X_prueba)[columna_objetivo].values
+            if columna_objetivo in dag_A.nodes():
+                manta_A = list(dag_A.get_markov_blanket(columna_objetivo))
         except Exception:
             pass
             
+        if len(manta_A) == 0:
+            manta_A = caracteristicas_seleccionadas
+            
+        try:
+            clf_A = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+            clf_A.fit(df_train_A[manta_A], df_train_A[columna_objetivo])
+            pred_A = clf_A.predict_proba(df_prueba[manta_A])[:, 1]
+        except Exception:
+            pass
+            
+        # --- Model B ---
+        manta_B = []
         try:
             CALL_COUNTER = 0
             if algoritmo == "PC":
@@ -198,15 +209,23 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 estimador_B = GES(scoring_method=scoring_fn, return_type='dag')
                 estimador_B.fit(df_train_B)
                 dag_B = estimador_B.causal_graph_
+            if columna_objetivo in dag_B.nodes():
+                manta_B = list(dag_B.get_markov_blanket(columna_objetivo))
+        except Exception:
+            pass
             
-            if len(dag_B.edges()) > 0:
-                modelo_B = LinearGaussianBayesianNetwork(dag_B.edges())
-                modelo_B.add_nodes_from(dag_B.nodes())
-                modelo_B.fit(df_train_B)
-                pred_B = modelo_B.predict(X_prueba)[columna_objetivo].values
+        if len(manta_B) == 0:
+            manta_B = caracteristicas_seleccionadas
+            
+        try:
+            clf_B = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+            clf_B.fit(df_train_B[manta_B], df_train_B[columna_objetivo])
+            pred_B = clf_B.predict_proba(df_prueba[manta_B])[:, 1]
         except Exception:
             pass
 
+        # --- Model C ---
+        manta_C = []
         try:
             CALL_COUNTER = 0
             if algoritmo == "PC":
@@ -218,12 +237,18 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 estimador_C = GES(scoring_method=scoring_fn, return_type='dag')
                 estimador_C.fit(df_train_C)
                 dag_C = estimador_C.causal_graph_
+            if columna_objetivo in dag_C.nodes():
+                manta_C = list(dag_C.get_markov_blanket(columna_objetivo))
+        except Exception:
+            pass
             
-            if len(dag_C.edges()) > 0:
-                modelo_C = LinearGaussianBayesianNetwork(dag_C.edges())
-                modelo_C.add_nodes_from(dag_C.nodes())
-                modelo_C.fit(df_train_C)
-                pred_C = modelo_C.predict(X_prueba)[columna_objetivo].values
+        if len(manta_C) == 0:
+            manta_C = caracteristicas_seleccionadas
+            
+        try:
+            clf_C = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+            clf_C.fit(df_train_C[manta_C], df_train_C[columna_objetivo])
+            pred_C = clf_C.predict_proba(df_prueba[manta_C])[:, 1]
         except Exception:
             pass
             
@@ -306,16 +331,14 @@ def principal():
             dag_final_A = None
             dag_final_B = None
             dag_final_C = None
-            pred_test_A = None
-            pred_test_B = None
-            pred_test_C = None
-            X_test = df_prueba_externa_sub.drop(columns=['Ansiedad'])
-            
+            # --- Model A ---
+            manta_final_A = []
+            dag_final_A = None
             try:
                 global CALL_COUNTER
                 CALL_COUNTER = 0
                 if algoritmo == "PC":
-                    est_final_A = PC(variant='stable', ci_test='pearsonr', significance_level=0.05, return_type='dag', show_progress=False)
+                    est_final_A = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
                     est_final_A.fit(df_train_final_A)
                     dag_final_A = est_final_A.causal_graph_
                 else:
@@ -323,19 +346,28 @@ def principal():
                     est_final_A = GES(scoring_method=scoring_fn, return_type='dag')
                     est_final_A.fit(df_train_final_A)
                     dag_final_A = est_final_A.causal_graph_
-                
-                if len(dag_final_A.edges()) > 0:
-                    modelo_final_A = LinearGaussianBayesianNetwork(dag_final_A.edges())
-                    modelo_final_A.add_nodes_from(dag_final_A.nodes())
-                    modelo_final_A.fit(df_train_final_A)
-                    pred_test_A = modelo_final_A.predict(X_test)['Ansiedad'].values
+                if 'Ansiedad' in dag_final_A.nodes():
+                    manta_final_A = list(dag_final_A.get_markov_blanket('Ansiedad'))
             except Exception:
                 pass
                 
+            if len(manta_final_A) == 0:
+                manta_final_A = caracteristicas
+                
+            try:
+                clf_final_A = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+                clf_final_A.fit(df_train_final_A[manta_final_A], df_train_final_A['Ansiedad'])
+                pred_test_A = clf_final_A.predict_proba(df_prueba_externa_sub[manta_final_A])[:, 1]
+            except Exception:
+                pass
+                
+            # --- Model B ---
+            manta_final_B = []
+            dag_final_B = None
             try:
                 CALL_COUNTER = 0
                 if algoritmo == "PC":
-                    est_final_B = PC(variant='stable', ci_test='pearsonr', significance_level=0.05, return_type='dag', show_progress=False)
+                    est_final_B = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
                     est_final_B.fit(df_train_final_B)
                     dag_final_B = est_final_B.causal_graph_
                 else:
@@ -343,19 +375,28 @@ def principal():
                     est_final_B = GES(scoring_method=scoring_fn, return_type='dag')
                     est_final_B.fit(df_train_final_B)
                     dag_final_B = est_final_B.causal_graph_
+                if 'Ansiedad' in dag_final_B.nodes():
+                    manta_final_B = list(dag_final_B.get_markov_blanket('Ansiedad'))
+            except Exception:
+                pass
                 
-                if len(dag_final_B.edges()) > 0:
-                    modelo_final_B = LinearGaussianBayesianNetwork(dag_final_B.edges())
-                    modelo_final_B.add_nodes_from(dag_final_B.nodes())
-                    modelo_final_B.fit(df_train_final_B)
-                    pred_test_B = modelo_final_B.predict(X_test)['Ansiedad'].values
+            if len(manta_final_B) == 0:
+                manta_final_B = caracteristicas
+                
+            try:
+                clf_final_B = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+                clf_final_B.fit(df_train_final_B[manta_final_B], df_train_final_B['Ansiedad'])
+                pred_test_B = clf_final_B.predict_proba(df_prueba_externa_sub[manta_final_B])[:, 1]
             except Exception:
                 pass
 
+            # --- Model C ---
+            manta_final_C = []
+            dag_final_C = None
             try:
                 CALL_COUNTER = 0
                 if algoritmo == "PC":
-                    est_final_C = PC(variant='stable', ci_test='pearsonr', significance_level=0.05, return_type='dag', show_progress=False)
+                    est_final_C = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
                     est_final_C.fit(df_train_final_C)
                     dag_final_C = est_final_C.causal_graph_
                 else:
@@ -363,12 +404,18 @@ def principal():
                     est_final_C = GES(scoring_method=scoring_fn, return_type='dag')
                     est_final_C.fit(df_train_final_C)
                     dag_final_C = est_final_C.causal_graph_
+                if 'Ansiedad' in dag_final_C.nodes():
+                    manta_final_C = list(dag_final_C.get_markov_blanket('Ansiedad'))
+            except Exception:
+                pass
                 
-                if len(dag_final_C.edges()) > 0:
-                    modelo_final_C = LinearGaussianBayesianNetwork(dag_final_C.edges())
-                    modelo_final_C.add_nodes_from(dag_final_C.nodes())
-                    modelo_final_C.fit(df_train_final_C)
-                    pred_test_C = modelo_final_C.predict(X_test)['Ansiedad'].values
+            if len(manta_final_C) == 0:
+                manta_final_C = caracteristicas
+                
+            try:
+                clf_final_C = LogisticRegression(penalty='l1', solver='liblinear', random_state=42)
+                clf_final_C.fit(df_train_final_C[manta_final_C], df_train_final_C['Ansiedad'])
+                pred_test_C = clf_final_C.predict_proba(df_prueba_externa_sub[manta_final_C])[:, 1]
             except Exception:
                 pass
                 

@@ -1,8 +1,0 @@
-Calculando potencias espectrales promedio por regiones de la corteza...
-Nodos de regiones causales definidos: ['Reg_Frontal', 'Reg_Central', 'Reg_Temporal', 'Reg_Parietal', 'Reg_Occipital']
-
-Entrenando Red Mixta Regional usando algoritmo: PC...
-LOSO Regional PC: 0it [00:00, ?it/s]LOSO Regional PC: 10it [00:01,  5.99it/s]LOSO Regional PC: 20it [00:03,  6.16it/s]LOSO Regional PC: 30it [00:04,  6.17it/s]                                         Guardando grafo causal regional en: Resultados/Red Bayesiana/Global/Regional/Red_Mixta_Regional_PC.png
-
-Entrenando Red Mixta Regional usando algoritmo: GES...
-LOSO Regional GES: 0it [00:00, ?it/s]LOSO Regional GES: 4it [00:01,  2.54it/s]LOSO Regional GES: 8it [00:03,  2.57it/s]LOSO Regional GES: 13it [00:04,  2.62it/s]LOSO Regional GES: 17it [00:06,  2.60it/s]LOSO Regional GES: 21it [00:08,  2.53it/s]LOSO Regional GES: 25it [00:09,  2.53it/s]LOSO Regional GES: 29it [00:11,  2.54it/s]

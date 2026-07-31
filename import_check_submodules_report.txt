@@ -1,5 +1,0 @@
-Interpreter: /Users/jovanigallegos/miniforge3/envs/bn_anxiety_env/bin/python
-Total modules/submodules: 37
-
-Failed imports:
-pgmpy.prediction -> cannot import name 'validate_data' from 'sklearn.utils.validation' (/Users/jovanigallegos/miniforge3/envs/bn_anxiety_env/lib/python3.10/site-packages/sklearn/utils/validation.py)

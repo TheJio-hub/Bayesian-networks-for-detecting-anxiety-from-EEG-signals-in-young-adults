@@ -65,6 +65,92 @@ class RobustBICCondGauss(BICCondGauss):
         except Exception:
             return -1e9
 
+class MDLPDiscretizer:
+    """Discretizador supervisado por entropía basado en el Principio de Longitud Mínima de Descripción (MDLP - Fayyad & Irani)."""
+    def __init__(self, min_samples_split=5):
+        self.min_samples_split = min_samples_split
+        self.cut_points_ = {}
+
+    def _entropy(self, y):
+        if len(y) == 0:
+            return 0.0
+        p1 = np.mean(y)
+        p0 = 1.0 - p1
+        if p0 <= 0 or p1 <= 0:
+            return 0.0
+        return - (p0 * np.log2(p0) + p1 * np.log2(p1))
+
+    def _mdlp_cut(self, x, y):
+        n = len(x)
+        if n < self.min_samples_split or len(np.unique(y)) <= 1:
+            return []
+
+        sort_idx = np.argsort(x)
+        x_sorted, y_sorted = x[sort_idx], y[sort_idx]
+        unique_x = np.unique(x_sorted)
+        if len(unique_x) <= 1:
+            return []
+
+        candidates = (unique_x[:-1] + unique_x[1:]) / 2.0
+        best_gain = -1.0
+        best_cut = None
+
+        ent_s = self._entropy(y_sorted)
+        k_s = len(np.unique(y_sorted))
+
+        for cut in candidates:
+            left_mask = x_sorted <= cut
+            y_l, y_r = y_sorted[left_mask], y_sorted[~left_mask]
+            if len(y_l) == 0 or len(y_r) == 0:
+                continue
+
+            ent_l = self._entropy(y_l)
+            ent_r = self._entropy(y_r)
+            e_cond = (len(y_l) / n) * ent_l + (len(y_r) / n) * ent_r
+            gain = ent_s - e_cond
+
+            if gain > best_gain:
+                best_gain = gain
+                best_cut = cut
+
+        if best_cut is None or best_gain <= 0:
+            return []
+
+        left_mask = x_sorted <= best_cut
+        y_l, y_r = y_sorted[left_mask], y_sorted[~left_mask]
+        k1, k2 = len(np.unique(y_l)), len(np.unique(y_r))
+        ent_l, ent_r = self._entropy(y_l), self._entropy(y_r)
+        delta = np.log2(3**k_s - 2) - (k_s * ent_s - k1 * ent_l - k2 * ent_r)
+        threshold = (np.log2(n - 1) + delta) / n
+
+        if best_gain > threshold:
+            left_cuts = self._mdlp_cut(x_sorted[left_mask], y_l)
+            right_cuts = self._mdlp_cut(x_sorted[~left_mask], y_r)
+            return sorted(list(set(left_cuts + [best_cut] + right_cuts)))
+        else:
+            return []
+
+    def fit(self, X, y):
+        X_df = pd.DataFrame(X)
+        y_arr = np.asarray(y)
+
+        for col in X_df.columns:
+            cuts = self._mdlp_cut(X_df[col].values, y_arr)
+            if len(cuts) == 0:
+                cuts = [np.median(X_df[col].values)]
+            self.cut_points_[col] = cuts
+        return self
+
+    def transform(self, X):
+        X_df = pd.DataFrame(X)
+        X_disc = pd.DataFrame(index=X_df.index)
+
+        for col in X_df.columns:
+            cuts = self.cut_points_.get(col, [])
+            bins = [-np.inf] + cuts + [np.inf]
+            X_disc[col] = pd.cut(X_df[col], bins=bins, labels=False).fillna(0).astype(int)
+        return X_disc
+
 def graficar_dag(dag, titulo, nombre_archivo):
     plt.figure(figsize=(12, 10))
     G = nx.DiGraph(dag.edges())
@@ -187,8 +273,13 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
             global CALL_COUNTER
             CALL_COUNTER = 0
             if algoritmo == "PC":
-                est = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
-                est.fit(df_train_A)
+                mdlp_A = MDLPDiscretizer()
+                mdlp_A.fit(df_train_A[caracteristicas_seleccionadas], df_train_A[columna_objetivo])
+                df_train_A_disc = mdlp_A.transform(df_train_A[caracteristicas_seleccionadas])
+                df_train_A_disc[columna_objetivo] = df_train_A[columna_objetivo].values.astype(int)
+                
+                est = PC(variant='stable', ci_test='chi_square', significance_level=0.05, return_type='dag', show_progress=False)
+                est.fit(df_train_A_disc)
                 dag_A = est.causal_graph_
             else:
                 scoring_fn = RobustBICCondGauss(df_train_A)
@@ -197,7 +288,7 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 dag_A = est.causal_graph_
             
             if columna_objetivo in dag_A.nodes():
-                manta_A = dag_A.get_markov_blanket(columna_objetivo)
+                manta_A = list(dag_A.get_markov_blanket(columna_objetivo))
         except Exception:
             pass
         if len(manta_A) == 0:
@@ -212,8 +303,13 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
         try:
             CALL_COUNTER = 0
             if algoritmo == "PC":
-                est = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
-                est.fit(df_train_B)
+                mdlp_B = MDLPDiscretizer()
+                mdlp_B.fit(df_train_B[caracteristicas_seleccionadas], df_train_B[columna_objetivo])
+                df_train_B_disc = mdlp_B.transform(df_train_B[caracteristicas_seleccionadas])
+                df_train_B_disc[columna_objetivo] = df_train_B[columna_objetivo].values.astype(int)
+                
+                est = PC(variant='stable', ci_test='chi_square', significance_level=0.05, return_type='dag', show_progress=False)
+                est.fit(df_train_B_disc)
                 dag_B = est.causal_graph_
             else:
                 scoring_fn = RobustBICCondGauss(df_train_B)
@@ -222,7 +318,7 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 dag_B = est.causal_graph_
             
             if columna_objetivo in dag_B.nodes():
-                manta_B = dag_B.get_markov_blanket(columna_objetivo)
+                manta_B = list(dag_B.get_markov_blanket(columna_objetivo))
         except Exception:
             pass
         if len(manta_B) == 0:
@@ -237,8 +333,13 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
         try:
             CALL_COUNTER = 0
             if algoritmo == "PC":
-                est = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
-                est.fit(df_train_C)
+                mdlp_C = MDLPDiscretizer()
+                mdlp_C.fit(df_train_C[caracteristicas_seleccionadas], df_train_C[columna_objetivo])
+                df_train_C_disc = mdlp_C.transform(df_train_C[caracteristicas_seleccionadas])
+                df_train_C_disc[columna_objetivo] = df_train_C[columna_objetivo].values.astype(int)
+                
+                est = PC(variant='stable', ci_test='chi_square', significance_level=0.05, return_type='dag', show_progress=False)
+                est.fit(df_train_C_disc)
                 dag_C = est.causal_graph_
             else:
                 scoring_fn = RobustBICCondGauss(df_train_C)
@@ -247,7 +348,7 @@ def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, gru
                 dag_C = est.causal_graph_
             
             if columna_objetivo in dag_C.nodes():
-                manta_C = dag_C.get_markov_blanket(columna_objetivo)
+                manta_C = list(dag_C.get_markov_blanket(columna_objetivo))
         except Exception:
             pass
         if len(manta_C) == 0:
