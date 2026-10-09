@@ -1,16 +1,22 @@
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from sklearn.tree import DecisionTreeClassifier
 from tqdm.auto import tqdm as _tqdm
+from particion_sujetos import obtener_particion, filtrar_desarrollo, guardar_particion
 
 
 def tqdm(*args, **kwargs):
     kwargs.setdefault('mininterval', 1.5)
     kwargs.setdefault('miniters', 1)
     return _tqdm(*args, **kwargs)
+
+
+BANDAS_ARTICULO = ('Delta', 'Theta', 'Alpha', 'Beta', 'Gamma')
+RAZONES_ARTICULO = ('ThetaBeta', 'ThetaAlpha', 'AlphaBeta')
 
 
 def fisher_score_func(X, y):
@@ -43,7 +49,7 @@ def columnas_ratio_por_banda(columnas, banda):
         if len(partes) < 3:
             continue
         tipo_ratio = partes[1]
-        if banda in tipo_ratio:
+        if tipo_ratio in RAZONES_ARTICULO and banda in tipo_ratio:
             seleccionadas.append(col)
     return seleccionadas
 
@@ -171,8 +177,6 @@ def evaluar_caracteristicas_por_banda():
     else:
         df_filtered = df.copy()
 
-    y = df_filtered['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
-
     df_asim = pd.read_parquet(input_asimetria) if os.path.exists(input_asimetria) else pd.DataFrame()
     if not df_asim.empty and 'Puntaje' in df_asim.columns:
         df_asim = df_asim[(df_asim['Puntaje'] == 0) | (df_asim['Puntaje'] >= 1)].copy()
@@ -180,22 +184,38 @@ def evaluar_caracteristicas_por_banda():
     df_ratio = pd.read_parquet(input_ratios) if os.path.exists(input_ratios) else pd.DataFrame()
     if not df_ratio.empty and 'Puntaje' in df_ratio.columns:
         df_ratio = df_ratio[(df_ratio['Puntaje'] == 0) | (df_ratio['Puntaje'] >= 1)].copy()
+
+    sujetos_desarrollo, sujetos_prueba = obtener_particion(df_filtered)
+    df_filtered = filtrar_desarrollo(df_filtered, sujetos_desarrollo, 'potencia por banda')
+    df_asim = filtrar_desarrollo(df_asim, sujetos_desarrollo, 'asimetría')
+    df_ratio = filtrar_desarrollo(df_ratio, sujetos_desarrollo, 'ratios')
+    guardar_particion(Path(output_dir) / 'Particion_sujetos_32_8.json', sujetos_desarrollo, sujetos_prueba)
+    y = df_filtered['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
+    y_asim = df_asim['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
+    y_ratio = df_ratio['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
     
     bandas = ['Delta', 'Alpha', 'Beta']
     
     cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
     all_features = [c for c in df_filtered.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df_filtered[c])]
 
-    # Asimetria global (todas las 50 caracteristicas), no por banda.
+    # El artículo usa las 50 asimetrías de potencia absoluta (10 pares x 5 bandas).
     dir_asim_global = os.path.join(output_dir, 'Asimetria')
     os.makedirs(dir_asim_global, exist_ok=True)
-    cols_asim_global = [c for c in df_asim.columns if c.startswith('Asym_')] if not df_asim.empty else []
+    cols_asim_global = [
+        c for c in df_asim.columns
+        if c.startswith('Asym_') and any(c.endswith(f'_{banda}') for banda in BANDAS_ARTICULO)
+    ] if not df_asim.empty else []
+    if cols_asim_global and len(cols_asim_global) != 50:
+        raise ValueError(
+            f'El artículo especifica 50 asimetrías absolutas; se encontraron {len(cols_asim_global)}.'
+        )
     X_asim_global = df_asim[cols_asim_global] if cols_asim_global else pd.DataFrame(index=df_filtered.index)
 
     try:
         guardar_ranking_fisher_mi(
             X_asim_global,
-            y,
+            y_asim,
             os.path.join(dir_asim_global, 'Fisher_Asimetria.csv'),
             os.path.join(dir_asim_global, 'MI_Asimetria.csv')
         )
@@ -205,7 +225,7 @@ def evaluar_caracteristicas_por_banda():
     try:
         guardar_ranking_dt(
             X_asim_global,
-            y,
+            y_asim,
             os.path.join(dir_asim_global, 'DT_Asimetria.csv')
         )
     except Exception as e:
@@ -214,7 +234,7 @@ def evaluar_caracteristicas_por_banda():
     try:
         guardar_ranking_mrmr(
             X_asim_global,
-            y,
+            y_asim,
             os.path.join(dir_asim_global, 'mRMR_Asimetria.csv'),
             proporcion=1.0,
         )
@@ -269,7 +289,7 @@ def evaluar_caracteristicas_por_banda():
         try:
             guardar_ranking_fisher_mi(
                 X_ratio,
-                y,
+                y_ratio,
                 os.path.join(dir_ratios, f'Fisher_Ratios_{banda}.csv'),
                 os.path.join(dir_ratios, f'MI_Ratios_{banda}.csv')
             )
@@ -279,7 +299,7 @@ def evaluar_caracteristicas_por_banda():
         try:
             guardar_ranking_dt(
                 X_ratio,
-                y,
+                y_ratio,
                 os.path.join(dir_ratios, f'DT_Ratios_{banda}.csv')
             )
         except Exception as e:
@@ -288,7 +308,7 @@ def evaluar_caracteristicas_por_banda():
         try:
             guardar_ranking_mrmr(
                 X_ratio,
-                y,
+                y_ratio,
                 os.path.join(dir_ratios, f'mRMR_Ratios_{banda}.csv'),
                 proporcion=1.0,
             )

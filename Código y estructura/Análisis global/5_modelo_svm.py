@@ -1,4 +1,5 @@
 import os
+import numpy as np
 
 import pandas as pd
 from tqdm.auto import tqdm as _tqdm
@@ -120,6 +121,11 @@ def principal():
 
     df_ranking = pd.read_csv(archivo_ranking)
     df_datos = pd.read_parquet(archivo_datos)
+    sujetos = np.sort(df_datos['Sujeto'].dropna().unique())
+    if len(sujetos) != 40:
+        raise ValueError(f'Se esperaban 40 sujetos SAM-40; se encontraron {len(sujetos)}.')
+    sujetos_desarrollo = np.random.RandomState(42).permutation(sujetos)[:32]
+    df_datos = df_datos[df_datos['Sujeto'].isin(sujetos_desarrollo)].copy()
     
     df_datos = df_datos[ (df_datos['Puntaje'] == 0) | (df_datos['Puntaje'] >= 1) ].copy()
     y = df_datos['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values

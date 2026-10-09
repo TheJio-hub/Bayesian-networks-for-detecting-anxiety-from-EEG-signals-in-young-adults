@@ -2,7 +2,7 @@
 
 Este repositorio contiene el código fuente, la metodología y los métodos de modelado para la investigación de tesis de maestría titulada **"Redes Bayesianas para la detección de ansiedad a partir de señales de EEG en jóvenes adultos"**.
 
-El proyecto abarca desde la preparación del conjunto de datos electroencefalográficos (EEG), la extracción de características espectrales (potencias por banda, asimetrías hemisféricas y ratios inter-banda), la selección multicriterio de características y la construcción de clasificadores tradicionales, hasta el modelado estructural e inferencia causal mediante **Redes Bayesianas** (Globales, Regionales, por Tareas y Ensamble de Conocimiento).
+El proyecto abarca desde la preparación del conjunto de datos electroencefalográficos (EEG), la extracción de características espectrales (potencias por banda, asimetrías hemisféricas y razones entre bandas), la selección de características y la comparación de clasificadores. La inferencia causal requiere supuestos adicionales; las estructuras aprendidas de estos datos observacionales se interpretan como asociaciones compatibles con el modelo, no como efectos causales demostrados.
 
 ---
 
@@ -41,13 +41,14 @@ El proyecto abarca desde la preparación del conjunto de datos electroencefalogr
 │   │
 │   └── Red Bayesiana/                # Modelos de Redes Bayesianas y Descubrimiento Causal
 │       ├── Global/
-│       │   ├── 1_Red_Continua.py      # Red Gaussiana Lineal (PC / GES)
-│       │   ├── 2_Red_Discreta.py      # Red Bayesiana Discreta
-│       │   ├── 3_Red_Mixta.py         # Red Mixta Continuas-Discreta (Manta de Markov + RegLog)
-│       │   ├── 4_Red_Mixta_Regional.py# Agrupación anatómica en 5 regiones corticales
-│       │   ├── 5_Red_Ensamble_Conocimiento.py # Ensamble (Ponderado, DAG Priors, Stacking)
-│       │   ├── 6_Red_TAN.py           # Tree-Augmented Naive Bayes
-│       │   └── 8_Red_Naive_Bayes.py   # Naive Bayes gráfico
+│       │   ├── 10_Comparativa_Bayesiana_MRMR.py # Ejecutor de referencia para la evaluación predictiva
+│       │   ├── 1_Red_Continua.py      # Modelo histórico híbrido (estructura + regresión logística)
+│       │   ├── 2_Red_Discreta.py      # Modelo discreto histórico
+│       │   ├── 3_Red_Mixta.py         # Modelo histórico híbrido (manta de Markov + regresión logística)
+│       │   ├── 4_Red_Mixta_Regional.py# Modelo regional histórico
+│       │   ├── 5_Ensamble_Conocimiento.py # Ensamble histórico
+│       │   ├── 6_Red_TAN.py           # TAN histórico
+│       │   └── 8_Red_Naive_Bayes.py   # Naive Bayes gráfico histórico
 │       ├── Tareas/
 │       │   └── 3_Red_Mixta_Tareas.py  # Modelos específicos (Aritmética, Espejo, Stroop)
 │       └── Trials/
@@ -112,6 +113,9 @@ python "Código y estructura/Extracción de características/3_normalizacion.py"
 ```
 
 ### 2. Selección de Características y Clasificación Tradicional
+
+El selector global separa de forma reproducible 32 sujetos de desarrollo y 8 sujetos de prueba externa (semilla 42); calcula el ranking únicamente con los 32. Los clasificadores tradicionales se ejecutan sobre esos mismos 32 sujetos y comparan Top 10/15/20/30/40 para Fisher, información mutua y mRMR; para importancia DT usan Top 10/15/20, porque el ranking actual solo asigna importancia positiva a 24 variables y los puestos posteriores serían empates en cero. La prueba externa de ocho sujetos se conserva para la evaluación final bayesiana. La validación LOSO tradicional usa un ranking precalculado sobre los 32 y debe interpretarse como comparación de desarrollo, no como estimación libre de sesgo por selección; el ejecutor bayesiano vuelve a calcular las características en cada pliegue.
+
 ```bash
 # Ranking multicriterio de características (Fisher, MI, mRMR, DT)
 python "Código y estructura/Análisis global/1_seleccion_caracteristicas_G.py"
@@ -124,37 +128,42 @@ python "Código y estructura/Análisis global/5_modelo_svm.py"
 python "Código y estructura/Análisis global/6_modelo_xgboost.py"
 ```
 
-### 3. Construcción y Evaluación de Redes Bayesianas
+### 3. Evaluación de Redes Bayesianas
+
+Los resultados predictivos finales se generan con el ejecutor de referencia. Usa el conjunto SAM ≥ 1 acordado, 306 variables candidatas, compara los rankings DT, Fisher, información mutua y mRMR recalculados únicamente en los datos de entrenamiento de cada pliegue, Top global 10/15/20/30/40 para Fisher, información mutua y mRMR; Top 10/15/20 para DT (y Top 10/15/20/30 en bandas) con validación anidada agrupada por sujeto. Compara PC, GES, TAN y Naive Bayes mediante probabilidades posteriores de la red. Reserva los mismos 32 sujetos para desarrollo y 8 para una evaluación externa única.
+
+Ejecuta desde la raíz del repositorio:
+
 ```bash
-# Red Bayesiana Gaussiana Lineal Continua
-python "Código y estructura/Red Bayesiana/Global/1_Red_Continua.py"
-
-# Red Bayesiana Mixta (Descubrimiento causal PC/GES + Manta de Markov + RegLog)
-python "Código y estructura/Red Bayesiana/Global/3_Red_Mixta.py"
-
-# Red Bayesiana Mixta Regional (5 regiones corticales: Frontal, Central, Temporal, Parietal, Occipital)
-python "Código y estructura/Red Bayesiana/Global/4_Red_Mixta_Regional.py"
-
-# Red Bayesiana por Tareas específicas (Aritmética, Espejo, Stroop)
-python "Código y estructura/Red Bayesiana/Tareas/3_Red_Mixta_Tareas.py"
-
-# Red Bayesiana por Trials (Evolución temporal y fatiga)
-python "Código y estructura/Red Bayesiana/Trials/3_Red_Mixta_Trials.py"
-
-# Red de Ensamble de Conocimiento (Fusión Ponderada, DAG Priors y Stacking)
-python "Código y estructura/Red Bayesiana/Global/5_Red_Ensamble_Conocimiento.py"
+python "Código y estructura/Red Bayesiana/Global/10_Comparativa_Bayesiana_MRMR.py" --analysis global
 ```
+
+El análisis global se corre por separado del análisis por bandas:
+
+```bash
+python "Código y estructura/Red Bayesiana/Global/10_Comparativa_Bayesiana_MRMR.py" --analysis bands
+```
+
+También pueden ejecutarse los análisis por tarea y trial con `--analysis tasks` y `--analysis trials`. `--analysis all` ejecuta los alcances global, bandas, tareas y trials y requiere más tiempo. Los análisis por banda usan las variables correspondientes del conjunto de 306 características del artículo. Los scripts anteriores de redes se conservan para consulta y comparación histórica; no deben usarse para reemplazar los resultados del ejecutor de referencia porque algunos clasifican con regresión logística, usan tops distintos o no aplican selección anidada por sujeto.
+
+Los archivos nuevos se guardan en `Resultados/Red Bayesiana/Comparativa_Seleccion_BN_CV/`. La comparación de los cuatro rankings de este ejecutor determina cuál funciona mejor para estas redes bayesianas; no establece cuál selección es mejor para los clasificadores tradicionales.
+
+El ejecutor usa pgmpy, que ya forma parte del entorno fijado. Para controlar el tiempo del algoritmo PC, restringe el orden máximo de los conjuntos condicionantes a dos; esta limitación debe declararse al interpretar la estructura aprendida. No requiere instalar causal-learn: no se ha medido una ventaja de tiempo que justifique añadir otra implementación de PC/GES y conversiones adicionales de grafos.
 
 ---
 
 ## 📈 Evaluación y Métricas
 
-Todos los modelos se evalúan mediante **Validación Cruzada Dejando un Sujeto Fuera (Leave-One-Subject-Out - LOSO)** para prevenir fugas de información entre sujetos y evaluar la capacidad de generalización inter-sujeto real. Las métricas reportadas incluyen:
+El ejecutor de referencia usa validación anidada por sujeto para comparar los cuatro métodos de selección y los cinco tamaños globales Top para Fisher, información mutua y mRMR y Top 10/15/20 para DT; en análisis por bandas conserva Top 10/15/20/30. El ranking, la discretización, la estructura y el umbral se ajustan solo con sujetos de entrenamiento. Se usan cuatro pliegues externos y dos internos; la prueba externa se consulta después de fijar una única configuración. Las épocas no se tratan como participantes independientes; además se guardan métricas por sujeto y estabilidad de características/arcos. Las métricas incluyen:
 * **Exactitud (Accuracy)**
+* **Exactitud balanceada**
 * **Sensibilidad (Recall / Sensitivity)**
 * **Especificidad (Specificity)**
-* **F1-Score**
-* **Matrices de Confusión acumuladas** y visualización de grafos causales (DAGs).
+* **F1-Score, ROC-AUC, PR-AUC y Brier**
+* **Intervalos de confianza por remuestreo de sujetos**
+* **Frecuencia de selección de características y de arcos**
+
+La normalización existente utiliza el baseline de relajación de cada sujeto. La evaluación asume que ese baseline estará disponible para normalizar las observaciones de un sujeto nuevo; si el caso de uso no dispone de ese baseline, deberá cambiarse también ese protocolo.
 
 ---
 

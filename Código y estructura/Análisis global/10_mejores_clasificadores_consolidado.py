@@ -38,6 +38,9 @@ def generar_csv_mejores_clasificadores():
                 if resto.startswith(metodo):
                     top_str = resto.replace(metodo + "_top", "")
                     top = int(top_str)
+                    # Top30/40 de DT contienen variables empatadas con importancia cero.
+                    if metodo == 'DT' and top not in {10, 15, 20}:
+                        continue
                     
                     # Clase 1 (Ansiedad)
                     if 'Clase 1 (Validación)' in df.index and 'Clase 1 (Entrenamiento)' in df.index:

@@ -60,7 +60,7 @@ def construir_dataframe_base():
     clasificadores = ['DT', 'RF', 'KNN', 'SVM', 'XGB']
     # Usamos solo cuatro métodos: Fisher, Mutual_Info, mRMR y DT (Importancia del árbol)
     metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'DT']
-    tops_permitidos_metodo_dt = {10, 15, 20}  # Método DT solo en estos tops
+    tops_permitidos_metodo_dt = {10, 15, 20}
 
     filas = []
     for nombre_top, sufijo in tqdm(configuracion, desc='Cargando métricas', unit='top'):
@@ -306,7 +306,7 @@ def generar_tablas_csv():
     base_salida = os.path.join('Resultados', 'Análisis global', 'Modelos generados', 'Gráficas comparativas')
     os.makedirs(base_salida, exist_ok=True)
     
-    configuracion = [('Top 30', 30), ('Top 20', 20), ('Top 15', 15)]
+    configuracion = [('Top 40', 40), ('Top 30', 30), ('Top 20', 20), ('Top 15', 15), ('Top 10', 10)]
     clasificadores = ['DT', 'RF', 'KNN', 'SVM', 'XGB']
     metodos = ['Fisher', 'Mutual_Info', 'mRMR', 'DT']
     tops_permitidos_metodo_dt = {10, 15, 20}

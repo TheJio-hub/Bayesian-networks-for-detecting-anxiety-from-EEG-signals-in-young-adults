@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm as _tqdm
+from particion_sujetos import cargar_particion, filtrar_desarrollo
 
 
 def tqdm(*args, **kwargs):
@@ -331,6 +332,15 @@ def main() -> None:
     df_asim = cargar_dataframe(ruta_asimetria)
     df_ratio = cargar_dataframe(ruta_ratios)
 
+    # Reutilizar exactamente la partición 32/8 creada al calcular los rankings.
+    df_base = filtrar_clases_extremas(df_base)
+    sujetos_desarrollo, _ = cargar_particion(
+        raiz / "Resultados" / "Análisis por bandas" / "Ranking de características" / "Particion_sujetos_32_8.json",
+        df_base,
+    )
+    df_base = filtrar_desarrollo(df_base, sujetos_desarrollo, "potencia por banda")
+    df_asim = filtrar_desarrollo(filtrar_clases_extremas(df_asim), sujetos_desarrollo, "asimetría")
+    df_ratio = filtrar_desarrollo(filtrar_clases_extremas(df_ratio), sujetos_desarrollo, "ratios")
     df_base, y_base, grupos_base = preparar_datos(df_base)
     df_asim, y_asim, grupos_asim = preparar_datos(df_asim)
     df_ratio, y_ratio, grupos_ratio = preparar_datos(df_ratio)

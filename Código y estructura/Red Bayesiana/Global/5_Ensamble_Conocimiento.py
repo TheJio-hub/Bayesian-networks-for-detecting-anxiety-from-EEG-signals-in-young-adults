@@ -43,7 +43,7 @@ def patched_to_pdag(self, *args, **kwargs):
     global CALL_COUNTER
     CALL_COUNTER += 1
     if CALL_COUNTER > 150:
-        raise RuntimeError("Bucle infinito detectado en la conversión causal del grafo")
+        raise RuntimeError("Bucle infinito detectado")
     return original_to_pdag(self, *args, **kwargs)
 
 
@@ -51,7 +51,7 @@ def patched_to_cpdag(self, *args, **kwargs):
     global CALL_COUNTER
     CALL_COUNTER += 1
     if CALL_COUNTER > 150:
-        raise RuntimeError("Bucle infinito detectado en la conversión causal del grafo")
+        raise RuntimeError("Bucle infinito detectado")
     return original_to_cpdag(self, *args, **kwargs)
 
 
@@ -68,6 +68,44 @@ class RobustBICCondGauss(BICCondGauss):
             return score
         except Exception:
             return -1e9
+
+
+def graficar_dag(dag, titulo, nombre_archivo):
+    plt.figure(figsize=(12, 10))
+    G = nx.DiGraph(dag.edges())
+    G.add_nodes_from(dag.nodes())
+    try:
+        generations = list(nx.topological_generations(G))
+        pos = {}
+        num_gens = len(generations)
+        for gen_idx, nodes in enumerate(generations):
+            y = 1.0 - (gen_idx / (num_gens - 1) if num_gens > 1 else 0.0)
+            num_nodes = len(nodes)
+            for node_idx, node in enumerate(nodes):
+                if num_nodes > 1:
+                    x = 0.1 + 0.8 * (node_idx / (num_nodes - 1))
+                else:
+                    x = 0.5
+                pos[node] = (x, y)
+    except Exception:
+        pos = nx.spring_layout(G, seed=42, k=1.5)
+    
+    colores_nodos = []
+    for nodo in G.nodes():
+        if nodo == 'Ansiedad':
+            colores_nodos.append('lightgreen')
+        else:
+            colores_nodos.append('lightblue')
+            
+    nx.draw_networkx_nodes(G, pos, node_size=2000, node_color=colores_nodos, edgecolors='black', linewidths=1.5)
+    nx.draw_networkx_labels(G, pos, font_size=8, font_family='sans-serif', font_weight='bold')
+    nx.draw_networkx_edges(G, pos, edge_color='gray', arrows=True, arrowsize=20, width=1.5, node_size=2000)
+    
+    plt.title(titulo, fontsize=14, fontweight='bold', pad=20)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(nombre_archivo, dpi=300, bbox_inches='tight')
+    plt.close()
 
 
 def split_ansiedad_into_three(df_ansiedad, n_control, seed=42):
@@ -97,10 +135,6 @@ def split_ansiedad_into_three(df_ansiedad, n_control, seed=42):
 
 
 def entrenar_modelo_mixto_probabilidades(df_entrenamiento, df_prueba, caracteristicas_seleccionadas, columna_objetivo='Ansiedad', algoritmo='GES', white_list=None):
-    """
-    Entrena una Red Bayesiana mixta con sub-muestreo balanceado en 3 partes,
-    obtiene la manta de Markov y devuelve las probabilidades estimadas para df_prueba.
-    """
     columnas_subconjunto = caracteristicas_seleccionadas + [columna_objetivo]
     train_sub = df_entrenamiento[columnas_subconjunto].copy()
     test_sub = df_prueba[columnas_subconjunto].copy()
@@ -136,12 +170,18 @@ def entrenar_modelo_mixto_probabilidades(df_entrenamiento, df_prueba, caracteris
             CALL_COUNTER = 0
             if algoritmo == "PC":
                 est = PC(variant='stable', ci_test='fisher_z', significance_level=0.05, return_type='dag', show_progress=False)
-                est.fit(df_sub)
+                if white_list is not None and len(white_list) > 0:
+                    est.fit(df_sub, fixed_edges=white_list)
+                else:
+                    est.fit(df_sub)
                 dag = est.causal_graph_
             else:
                 scoring_fn = RobustBICCondGauss(df_sub)
                 est = GES(scoring_method=scoring_fn, return_type='dag')
-                est.fit(df_sub)
+                if white_list is not None and len(white_list) > 0:
+                    est.fit(df_sub, fixed_edges=white_list)
+                else:
+                    est.fit(df_sub)
                 dag = est.causal_graph_
                 
             if columna_objetivo in dag.nodes():
@@ -163,10 +203,6 @@ def entrenar_modelo_mixto_probabilidades(df_entrenamiento, df_prueba, caracteris
 
 
 def ejecutar_loso_ensamble(df_datos, caracteristicas_seleccionadas, grupos_desarrollo, algoritmo='GES'):
-    """
-    Ejecuta la validación LOSO construyendo modelos globales y específicos por tarea,
-    y evalúa las 3 estrategias de ensamble (Ponderado, Transferencia Estructural y Stacking).
-    """
     particion = LeaveOneGroupOut()
     
     y_real = df_datos['Ansiedad'].values
@@ -176,8 +212,6 @@ def ejecutar_loso_ensamble(df_datos, caracteristicas_seleccionadas, grupos_desar
     prob_aritmetica = np.zeros(n_muestras)
     prob_espejo = np.zeros(n_muestras)
     prob_stroop = np.zeros(n_muestras)
-    
-    prob_stacking = np.zeros(n_muestras)
     prob_transf_estructural = np.zeros(n_muestras)
     
     tareas = ['Aritmetica', 'Espejo', 'Stroop']
@@ -199,15 +233,15 @@ def ejecutar_loso_ensamble(df_datos, caracteristicas_seleccionadas, grupos_desar
         p_glob, dags_glob = entrenar_modelo_mixto_probabilidades(df_train, df_test, caracteristicas_seleccionadas, 'Ansiedad', algoritmo)
         prob_global[idx_test] = p_glob
         
-        # Extracción de arcos globales para Transferencia Estructural (Enfoque B)
+        # Extraer arcos globales para transferencia estructural.
         arcos_globales = set()
         for d in dags_glob:
             if d is not None:
                 arcos_globales.update(d.edges())
                 
-        # 2. Entrenar Modelos Específicos por Tarea
+        # 3. Entrenar Modelos Específicos por Tarea
         p_tareas_test = {}
-        p_tareas_train = {}
+        p_transf_list = []
         
         for tarea in tareas:
             df_train_tarea = df_train[(df_train['Tarea'] == 'Relajacion') | (df_train['Tarea'] == tarea)].copy()
@@ -221,8 +255,8 @@ def ejecutar_loso_ensamble(df_datos, caracteristicas_seleccionadas, grupos_desar
                 elif tarea == 'Espejo': prob_espejo[idx_test[mascara_test_tarea]] = p_t[mascara_test_tarea]
                 elif tarea == 'Stroop': prob_stroop[idx_test[mascara_test_tarea]] = p_t[mascara_test_tarea]
                 
-            p_t_train, _ = entrenar_modelo_mixto_probabilidades(df_train_tarea, df_train, caracteristicas_seleccionadas, 'Ansiedad', algoritmo)
-            p_tareas_train[tarea] = p_t_train
+            p_t_prior, _ = entrenar_modelo_mixto_probabilidades(df_train_tarea, df_test, caracteristicas_seleccionadas, 'Ansiedad', algoritmo, white_list=arcos_globales)
+            p_transf_list.append(p_t_prior)
             
         mascara_control = (df_test['Tarea'] == 'Relajacion')
         if mascara_control.any():
@@ -231,35 +265,10 @@ def ejecutar_loso_ensamble(df_datos, caracteristicas_seleccionadas, grupos_desar
             prob_espejo[idx_test[mascara_control]] = p_control_mean[mascara_control]
             prob_stroop[idx_test[mascara_control]] = p_control_mean[mascara_control]
 
-        # --- Enfoque C: Meta-Clasificador Jerárquico (Stacking) ---
-        p_glob_train, _ = entrenar_modelo_mixto_probabilidades(df_train, df_train, caracteristicas_seleccionadas, 'Ansiedad', algoritmo)
-        X_meta_train = np.column_stack([
-            p_glob_train,
-            p_tareas_train['Aritmetica'],
-            p_tareas_train['Espejo'],
-            p_tareas_train['Stroop']
-        ])
-        y_meta_train = df_train['Ansiedad'].values
-        
-        meta_clf = LogisticRegression(penalty='l2', C=1.0, random_state=42)
-        meta_clf.fit(X_meta_train, y_meta_train)
-        
-        X_meta_test = np.column_stack([
-            p_glob,
-            p_tareas_test['Aritmetica'],
-            p_tareas_test['Espejo'],
-            p_tareas_test['Stroop']
-        ])
-        prob_stacking[idx_test] = meta_clf.predict_proba(X_meta_test)[:, 1]
-
-        # --- Enfoque B: Transferencia Estructural (Priorización de DAG) ---
-        p_transf_list = []
-        for tarea in tareas:
-            df_train_tarea = df_train[(df_train['Tarea'] == 'Relajacion') | (df_train['Tarea'] == tarea)].copy()
-            p_t_prior, _ = entrenar_modelo_mixto_probabilidades(df_train_tarea, df_test, caracteristicas_seleccionadas, 'Ansiedad', algoritmo, white_list=arcos_globales)
-            p_transf_list.append(p_t_prior)
-            
         prob_transf_estructural[idx_test] = np.mean(p_transf_list, axis=0)
+
+    # El stacking queda fuera de la evaluación: el metaclasificador no dispone
+    # aquí de una segunda capa de predicciones fuera de muestra independiente.
 
     resultados_ponderados = []
     prob_tarea_asignada = np.zeros(n_muestras)
@@ -292,22 +301,7 @@ def ejecutar_loso_ensamble(df_datos, caracteristicas_seleccionadas, grupos_desar
             'F1_Score': f1
         })
 
-    y_pred_stack = (prob_stacking >= 0.5).astype(int)
-    acc_stack = accuracy_score(y_real, y_pred_stack)
-    sens_stack = recall_score(y_real, y_pred_stack, zero_division=0)
-    prec_stack = precision_score(y_real, y_pred_stack, zero_division=0)
-    f1_stack = f1_score(y_real, y_pred_stack, zero_division=0)
-    tn_s, fp_s, _, _ = confusion_matrix(y_real, y_pred_stack, labels=[0, 1]).ravel()
-    spec_stack = tn_s / (tn_s + fp_s) if (tn_s + fp_s) > 0 else 0.0
-    
-    res_stacking = {
-        'Enfoque': 'Stacking_Jerarquico_C',
-        'Exactitud': acc_stack,
-        'Sensibilidad': sens_stack,
-        'Especificidad': spec_stack,
-        'Precisión': prec_stack,
-        'F1_Score': f1_stack
-    }
+    res_stacking = None
 
     y_pred_transf = (prob_transf_estructural >= 0.5).astype(int)
     acc_transf = accuracy_score(y_real, y_pred_transf)
@@ -330,8 +324,6 @@ def ejecutar_loso_ensamble(df_datos, caracteristicas_seleccionadas, grupos_desar
 
 
 def principal():
-    print("=== Iniciando Entrenamiento y Evaluación de la Red de Ensamble de Conocimiento (Punto 4) ===")
-    
     dir_resultados = os.path.join('Resultados', 'Red Bayesiana', 'Ensamble')
     os.makedirs(dir_resultados, exist_ok=True)
     
@@ -350,47 +342,90 @@ def principal():
     np.random.seed(42)
     sujetos_mezclados = np.random.permutation(sujetos_unicos)
     sujetos_desarrollo = sujetos_mezclados[:32]
+    sujetos_prueba = sujetos_mezclados[32:]
     
     df_desarrollo = df_datos[df_datos['Sujeto'].isin(sujetos_desarrollo)].copy()
+    df_prueba_externa = df_datos[df_datos['Sujeto'].isin(sujetos_prueba)].copy()
     grupos_desarrollo = df_desarrollo['Sujeto'].values
     
     df_ranking = pd.read_csv(archivo_ranking)
     df_ranking = df_ranking.sort_values(by='Importancia_DT', ascending=False)
     mejores_caracteristicas = df_ranking['Caracteristica'].tolist()
     
-    top_features = mejores_caracteristicas[:15]
+    resultados_globales = []
     
-    for algoritmo in ["GES", "PC"]:
-        print(f"\n--- Evaluando Ensamble de Conocimiento con algoritmo {algoritmo} ---")
-        df_ponderado, res_stack, res_transf = ejecutar_loso_ensamble(df_desarrollo, top_features, grupos_desarrollo, algoritmo=algoritmo)
-        
-        csv_pond = os.path.join(dir_resultados, f"Resultados_Ensamble_Ponderado_{algoritmo}.csv")
-        df_ponderado.to_csv(csv_pond, index=False)
-        
-        df_otros = pd.DataFrame([res_stack, res_transf])
-        csv_otros = os.path.join(dir_resultados, f"Resultados_Ensamble_Stacking_Transferencia_{algoritmo}.csv")
-        df_otros.to_csv(csv_otros, index=False)
-        
-        plt.figure(figsize=(9, 5))
-        plt.plot(df_ponderado['Peso_w'], df_ponderado['Exactitud'], marker='o', label='Exactitud', color='navy', linewidth=2)
-        plt.plot(df_ponderado['Peso_w'], df_ponderado['Sensibilidad'], marker='s', label='Sensibilidad', color='darkgreen', linewidth=2)
-        plt.plot(df_ponderado['Peso_w'], df_ponderado['Especificidad'], marker='^', label='Especificidad', color='darkred', linewidth=2)
-        plt.plot(df_ponderado['Peso_w'], df_ponderado['F1_Score'], marker='d', label='F1-Score', color='purple', linewidth=2)
-        plt.axvline(x=0.0, color='gray', linestyle='--', alpha=0.7, label='Solo Modelo Global (w=0)')
-        plt.axvline(x=1.0, color='orange', linestyle='--', alpha=0.7, label='Solo Modelo por Tareas (w=1)')
-        
-        plt.title(f'Desempeño del Ensamble Ponderado vs Peso w ({algoritmo})', fontsize=12, fontweight='bold')
-        plt.xlabel('Peso w (Aporte de Redes por Tarea)', fontsize=10)
-        plt.ylabel('Puntaje de Métrica', fontsize=10)
-        plt.grid(True, linestyle=':', alpha=0.6)
-        plt.legend(fontsize=9, loc='lower right')
-        plt.tight_layout()
-        
-        grafico_out = os.path.join(dir_resultados, f"Grafico_Ensamble_Ponderado_{algoritmo}.png")
-        plt.savefig(grafico_out, dpi=300)
-        plt.close()
-        
-        print(f"Resultados guardados exitosamente en '{dir_resultados}'.")
+    for n_features in [10, 15]:
+        top_features = mejores_caracteristicas[:n_features]
+        for algoritmo in ["GES", "PC"]:
+            df_ponderado, res_stack, res_transf = ejecutar_loso_ensamble(df_desarrollo, top_features, grupos_desarrollo, algoritmo=algoritmo)
+            
+            p_glob_test, dags_glob_test = entrenar_modelo_mixto_probabilidades(df_desarrollo, df_prueba_externa, top_features, 'Ansiedad', algoritmo)
+            if len(dags_glob_test) > 0 and dags_glob_test[0] is not None:
+                graficar_dag(
+                    dags_glob_test[0], 
+                    f'Red Bayesiana Ensamble Global ({algoritmo} - Top {n_features})', 
+                    os.path.join(dir_resultados, f'Red_Ensamble_Global_Top{n_features}_{algoritmo}.png')
+                )
+            p_tarea_aligned_test = np.zeros(len(df_prueba_externa))
+            probabilidades_tarea_test = []
+            for tarea in ['Aritmetica', 'Espejo', 'Stroop']:
+                df_train_t = df_desarrollo[(df_desarrollo['Tarea'] == 'Relajacion') | (df_desarrollo['Tarea'] == tarea)].copy()
+                p_t_ext, _ = entrenar_modelo_mixto_probabilidades(df_train_t, df_prueba_externa, top_features, 'Ansiedad', algoritmo)
+                probabilidades_tarea_test.append(p_t_ext)
+                mask_t = (df_prueba_externa['Tarea'] == tarea)
+                if mask_t.any():
+                    p_tarea_aligned_test[mask_t] = p_t_ext[mask_t]
+                    
+            mask_ctrl_ext = (df_prueba_externa['Tarea'] == 'Relajacion')
+            if mask_ctrl_ext.any():
+                p_control_mean = np.mean(probabilidades_tarea_test, axis=0)
+                p_tarea_aligned_test[mask_ctrl_ext] = p_control_mean[mask_ctrl_ext]
+            
+            idx_w_opt = df_ponderado['F1_Score'].idxmax()
+            w_opt = df_ponderado.loc[idx_w_opt, 'Peso_w']
+            val_acc_opt = df_ponderado.loc[idx_w_opt, 'Exactitud']
+            val_sens_opt = df_ponderado.loc[idx_w_opt, 'Sensibilidad']
+            val_spec_opt = df_ponderado.loc[idx_w_opt, 'Especificidad']
+            val_prec_opt = df_ponderado.loc[idx_w_opt, 'Precisión']
+            val_f1_opt = df_ponderado.loc[idx_w_opt, 'F1_Score']
+            
+            # Aplicar a prueba externa exactamente la misma regla optimizada
+            # en LOGO: combinación tarea-específica y global con un solo peso.
+            p_test_w_opt = w_opt * p_tarea_aligned_test + (1.0 - w_opt) * p_glob_test
+            y_test_real = df_prueba_externa['Ansiedad'].values.astype(int)
+            y_test_pred = (p_test_w_opt >= 0.50).astype(int)
+            
+            test_acc = accuracy_score(y_test_real, y_test_pred)
+            test_sens = recall_score(y_test_real, y_test_pred, zero_division=0)
+            test_prec = precision_score(y_test_real, y_test_pred, zero_division=0)
+            test_f1 = f1_score(y_test_real, y_test_pred, zero_division=0)
+            tn_t, fp_t, _, _ = confusion_matrix(y_test_real, y_test_pred, labels=[0, 1]).ravel()
+            test_spec = tn_t / (tn_t + fp_t) if (tn_t + fp_t) > 0 else 0.0
+            
+            alg_desc = f'Ensamble Ponderado w={w_opt} ({algoritmo})'
+            resultados_globales.append({
+                'Estructura': alg_desc,
+                'Top': n_features,
+                'Exact. (Val)': val_acc_opt,
+                'Exact. (Test)': test_acc,
+                'Prec. (Val)': val_prec_opt,
+                'Prec. (Test)': test_prec,
+                'Sens. (Val)': val_sens_opt,
+                'Sens. (Test)': test_sens,
+                'Esp. (Val)': val_spec_opt,
+                'Esp. (Test)': test_spec,
+                'F1 (Val)': val_f1_opt,
+                'F1 (Test)': test_f1,
+                'CS': np.nan,
+                'FisherC_p': np.nan,
+                'FisherC_RMSEA': np.nan
+            })
+
+    df_consolidado = pd.DataFrame(resultados_globales)
+    csv_consolidado = os.path.join(dir_resultados, "Resultados_Red_Ensamble.csv")
+    df_consolidado.to_csv(csv_consolidado, index=False)
+    print(f"=== Archivo de resultados guardado exitosamente en: {csv_consolidado} ===")
+
 
 if __name__ == "__main__":
     principal()

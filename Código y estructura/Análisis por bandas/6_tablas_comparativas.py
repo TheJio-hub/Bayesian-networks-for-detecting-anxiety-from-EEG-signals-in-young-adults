@@ -27,8 +27,13 @@ def leer_metricas(ruta_csv: Path) -> dict[str, float]:
     if df.empty:
         return {m: float("nan") for m in METRICAS}
 
-    if "Clase 1" in df.index:
+    # XGBoost guarda validación y entrenamiento; priorizar siempre validación.
+    if "Clase 1 (Validación)" in df.index:
+        fila = df.loc["Clase 1 (Validación)"]
+    elif "Clase 1" in df.index:
         fila = df.loc["Clase 1"]
+    elif "Clase 1 (Entrenamiento)" in df.index:
+        fila = df.loc["Clase 1 (Entrenamiento)"]
     else:
         fila = df.iloc[-1]
 

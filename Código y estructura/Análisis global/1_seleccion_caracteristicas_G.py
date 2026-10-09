@@ -1,4 +1,6 @@
 import os
+import re
+import json
 
 import numpy as np
 import pandas as pd
@@ -13,6 +15,44 @@ def tqdm(*args, **kwargs):
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from sklearn.tree import DecisionTreeClassifier, export_text
+
+
+BANDAS_ARTICULO = ('Delta', 'Theta', 'Alpha', 'Beta', 'Gamma')
+RAZONES_ARTICULO = ('ThetaBeta', 'ThetaAlpha', 'AlphaBeta')
+NUM_CARACTERISTICAS_ARTICULO = 306
+SEED_PARTICION = 42
+N_SUJETOS_DESARROLLO = 32
+
+
+def obtener_caracteristicas_articulo(columnas):
+    """Devuelve exactamente las 306 variables especificadas en el artículo."""
+    columnas = list(columnas)
+    potencias = [
+        c for c in columnas
+        if not c.startswith(('Asym_', 'Ratio_'))
+        and any(re.fullmatch(rf'.+_{banda}', c) for banda in BANDAS_ARTICULO)
+    ]
+    asimetrias = [
+        c for c in columnas
+        if c.startswith('Asym_')
+        and any(c.endswith(f'_{banda}') for banda in BANDAS_ARTICULO)
+    ]
+    razones = [
+        c for c in columnas
+        if c.startswith('Ratio_')
+        and any(c.startswith(f'Ratio_{razon}_') for razon in RAZONES_ARTICULO)
+    ]
+
+    caracteristicas = potencias + asimetrias + razones
+    conteos = (len(potencias), len(asimetrias), len(razones))
+    if conteos != (160, 50, 96) or len(caracteristicas) != NUM_CARACTERISTICAS_ARTICULO:
+        raise ValueError(
+            'El conjunto de características no coincide con el artículo: '
+            f'potencias={conteos[0]}, asimetrías={conteos[1]}, '
+            f'razones={conteos[2]}, total={len(caracteristicas)}; '
+            'se esperan 160, 50, 96 y 306, respectivamente.'
+        )
+    return caracteristicas
 
 
 def calcular_fisher_score(X, y):
@@ -49,7 +89,7 @@ def seleccion_mrmr_rapido(X, y, n_seleccion, desc='mRMR'):
     
     relevancia = mutual_info_classif(X, y, discrete_features=False, random_state=42)
     
-    redundancia_acumulada = np.zeros(n_caracteristicas)
+    redundancia_acumulada = np.zeros(n_caracteristicas, dtype=float)
     
     primera = np.argmax(relevancia)
     indices_seleccionados.append(primera)
@@ -59,10 +99,13 @@ def seleccion_mrmr_rapido(X, y, n_seleccion, desc='mRMR'):
         idx_ultimo = indices_seleccionados[-1]
         dat_ultimo = X.iloc[:, idx_ultimo].values.reshape(-1, 1)
         
-        for idx_cand in indices_candidatos:
-            dat_cand = X.iloc[:, idx_cand].values.reshape(-1, 1)
-            mi_feat = mutual_info_regression(dat_cand, dat_ultimo.ravel(), discrete_features=False, random_state=42)[0]
-            redundancia_acumulada[idx_cand] += mi_feat
+        # Una llamada estima la redundancia entre la última característica
+        # seleccionada y todas las candidatas; no restringe el conjunto a un
+        # prefiltrado por información mutua.
+        mi_redundancia = mutual_info_regression(
+            X, dat_ultimo.ravel(), discrete_features=False, random_state=42
+        )
+        redundancia_acumulada += mi_redundancia
             
         mejor_score = -np.inf
         mejor_idx = -1
@@ -122,17 +165,33 @@ def main():
     if not os.path.exists(archivo_entrada):
         return
 
-    progreso = tqdm(total=9, desc='Pipeline selección global', unit='paso')
+    progreso = tqdm(total=7, desc='Pipeline selección global', unit='paso')
 
     df = pd.read_parquet(archivo_entrada)
     progreso.update(1)
-    
+
     df = df[(df['Puntaje'] == 0) | (df['Puntaje'] >= 1)].copy()
+    sujetos = np.sort(df['Sujeto'].dropna().unique())
+    if len(sujetos) != 40:
+        raise ValueError(f'Se esperaban 40 sujetos SAM-40; se encontraron {len(sujetos)}.')
+    sujetos_barajados = np.random.RandomState(SEED_PARTICION).permutation(sujetos)
+    sujetos_desarrollo = sujetos_barajados[:N_SUJETOS_DESARROLLO]
+    sujetos_prueba = sujetos_barajados[N_SUJETOS_DESARROLLO:]
+    df = df[df['Sujeto'].isin(sujetos_desarrollo)].copy()
+    if df['Sujeto'].nunique() != N_SUJETOS_DESARROLLO:
+        raise ValueError('El conjunto de desarrollo no contiene exactamente 32 sujetos.')
     y = df['Puntaje'].apply(lambda x: 0 if x == 0 else 1).values
     grupos = df['Sujeto'].values
+    with open(os.path.join(directorio_seleccion, 'Particion_sujetos_32_8.json'), 'w', encoding='utf-8') as f:
+        json.dump({
+            'semilla': SEED_PARTICION,
+            'criterio': 'SAM=0 control; SAM>=1 caso',
+            'sujetos_desarrollo_32': list(map(str, sujetos_desarrollo)),
+            'sujetos_prueba_externa_8': list(map(str, sujetos_prueba)),
+            'uso_del_conjunto': 'El ranking se calcula solo con los sujetos de desarrollo; los ocho sujetos externos no participan.'
+        }, f, ensure_ascii=False, indent=2)
     
-    cols_meta = ['Sujeto', 'Tarea', 'Trial', 'Epoca', 'Puntaje', 'Grupo', 'Ensayo']
-    feats = [c for c in df.columns if c not in cols_meta and pd.api.types.is_numeric_dtype(df[c])]
+    feats = obtener_caracteristicas_articulo(df.columns)
     X = df[feats]
     progreso.update(1)
     
@@ -144,37 +203,19 @@ def main():
     mi_df = pd.DataFrame({'Caracteristica': mi.index, 'Mutual_Info': mi.values})
     progreso.update(1)
 
-    top_n_mi_para_mrmr = 40
-    columnas_mi_top40 = seleccionar_top_mi(X, y, top_n_mi_para_mrmr)
-    X_mrmr_40 = X[columnas_mi_top40]
-    mrmr_40_df = construir_ranking_mrmr(X_mrmr_40, y, 'mRMR_40_Rank')
-    progreso.update(1)
-
-    top_n_mi_para_mrmr_30 = 30
-    columnas_mi_top30 = seleccionar_top_mi(X, y, top_n_mi_para_mrmr_30)
-    X_mrmr_30 = X[columnas_mi_top30]
-    mrmr_30_df = construir_ranking_mrmr(X_mrmr_30, y, 'mRMR_30_Rank')
-    progreso.update(1)
-
-    top_n_mi_para_mrmr_20 = 20
-    columnas_mi_top20 = seleccionar_top_mi(X, y, top_n_mi_para_mrmr_20)
-    X_mrmr_20 = X[columnas_mi_top20]
-    mrmr_20_df = construir_ranking_mrmr(X_mrmr_20, y, 'mRMR_20_Rank')
-    progreso.update(1)
-
-    top_n_mi_para_mrmr_10 = 10
-    columnas_mi_top10 = seleccionar_top_mi(X, y, top_n_mi_para_mrmr_10)
-    X_mrmr_10 = X[columnas_mi_top10]
-    mrmr_10_df = construir_ranking_mrmr(X_mrmr_10, y, 'mRMR_10_Rank')
+    mrmr_df = construir_ranking_mrmr(X, y, 'mRMR_Rank')
+    # Un único ranking completo de 306 candidatas; Top 10/15/20/30/40 son prefijos.
+    # Compatibilidad con los scripts consumidores existentes: estas columnas
+    # contienen el mismo ranking generado sobre las 306 candidatas.
+    for n in (40, 30, 20, 15, 10):
+        mrmr_df[f'mRMR_{n}_Rank'] = mrmr_df['mRMR_Rank']
     progreso.update(1)
     
     imp_rf, imp_dt = analizar_modelos_y_ramas(X, y, grupos, directorio_salida)
+    progreso.update(1)
     
     maestra = fisher_df.merge(mi_df, on='Caracteristica', how='outer')
-    maestra = maestra.merge(mrmr_40_df, on='Caracteristica', how='outer')
-    maestra = maestra.merge(mrmr_30_df, on='Caracteristica', how='outer')
-    maestra = maestra.merge(mrmr_20_df, on='Caracteristica', how='outer')
-    maestra = maestra.merge(mrmr_10_df, on='Caracteristica', how='outer')
+    maestra = maestra.merge(mrmr_df, on='Caracteristica', how='outer')
     maestra = maestra.merge(imp_rf, on='Caracteristica', how='outer')
     maestra = maestra.merge(imp_dt, on='Caracteristica', how='outer')
     
