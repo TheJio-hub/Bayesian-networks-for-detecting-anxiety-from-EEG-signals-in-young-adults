@@ -1,7 +1,25 @@
-import os
-import warnings
+"""Clasificador bayesiano discreto generativo con clase raíz (SAM >= 1).
 
-warnings.filterwarnings('ignore')
+LOSO por sujeto: imputación, DT y discretización solo con entrenamiento.
+P(Y, X) = P(Y) producto_j P(X_j | Y, padres_EEG(X_j)).
+PC busca dependencias EEG condicionadas por Y y orienta por BIC discreto
+condicional. GES usa el mismo BIC condicional en los nodos EEG. La clase
+es raíz y padre de todos los predictores por diseño, sin afirmación causal.
+El refinamiento de complejidad protege esas aristas de clase. K2 estima
+las CPD; la inferencia exacta solo utiliza factores que dependen de Y.
+"""
+
+import argparse
+import json
+import os
+import threading
+import time
+import warnings
+from contextlib import contextmanager
+from hashlib import blake2b
+from importlib.metadata import PackageNotFoundError, version
+from itertools import combinations
+from pathlib import Path
 
 import matplotlib
 import numpy as np
@@ -11,583 +29,837 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import networkx as nx
 from pgmpy.causal_discovery import GES, PC
-from pgmpy.estimators import BayesianEstimator
-from pgmpy.metrics import CorrelationScore, FisherC
+from pgmpy.factors.discrete import TabularCPD
 from pgmpy.models import DiscreteBayesianNetwork
+from pgmpy.structure_score import BaseStructureScore
 from sklearn.metrics import (
-    accuracy_score,
-    confusion_matrix,
-    f1_score,
-    precision_score,
-    recall_score,
+    accuracy_score, brier_score_loss, confusion_matrix, f1_score,
+    log_loss, precision_score, recall_score, roc_auc_score,
 )
 from sklearn.model_selection import LeaveOneGroupOut
 from sklearn.preprocessing import KBinsDiscretizer
+from sklearn.tree import DecisionTreeClassifier
 from tqdm.auto import tqdm as _tqdm
 
+_CACHE_RANKING_DT = {}
 
 def tqdm(*args, **kwargs):
     kwargs.setdefault('mininterval', 1.5)
     kwargs.setdefault('miniters', 1)
     return _tqdm(*args, **kwargs)
 
-import pgmpy.base.DAG
-import pgmpy.base.PDAG
-
-original_to_pdag = pgmpy.base.DAG.to_pdag
-original_to_cpdag = pgmpy.base.PDAG.to_cpdag
-
-CALL_COUNTER = 0
-
-def patched_to_pdag(self, *args, **kwargs):
-    global CALL_COUNTER
-    CALL_COUNTER += 1
-    if CALL_COUNTER > 150:
-        raise RuntimeError("Bucle infinito detectado en la conversión causal del grafo")
-    return original_to_pdag(self, *args, **kwargs)
-
-def patched_to_cpdag(self, *args, **kwargs):
-    global CALL_COUNTER
-    CALL_COUNTER += 1
-    if CALL_COUNTER > 150:
-        raise RuntimeError("Bucle infinito detectado en la conversión causal del grafo")
-    return original_to_cpdag(self, *args, **kwargs)
-
-pgmpy.base.DAG.to_pdag = patched_to_pdag
-pgmpy.base.PDAG.to_cpdag = patched_to_cpdag
-
-class MDLPDiscretizer:
-    """Discretizador supervisado por entropía basado en el Principio de Longitud Mínima de Descripción (MDLP - Fayyad & Irani)."""
-    def __init__(self, min_samples_split=5):
-        self.min_samples_split = min_samples_split
-        self.cut_points_ = {}
-
-    def _entropy(self, y):
-        if len(y) == 0:
-            return 0.0
-        p1 = np.mean(y)
-        p0 = 1.0 - p1
-        if p0 <= 0 or p1 <= 0:
-            return 0.0
-        return - (p0 * np.log2(p0) + p1 * np.log2(p1))
-
-    def _mdlp_cut(self, x, y):
-        n = len(x)
-        if n < self.min_samples_split or len(np.unique(y)) <= 1:
-            return []
-
-        sort_idx = np.argsort(x)
-        x_sorted, y_sorted = x[sort_idx], y[sort_idx]
-        unique_x = np.unique(x_sorted)
-        if len(unique_x) <= 1:
-            return []
-
-        candidates = (unique_x[:-1] + unique_x[1:]) / 2.0
-        best_gain = -1.0
-        best_cut = None
-
-        ent_s = self._entropy(y_sorted)
-        k_s = len(np.unique(y_sorted))
-
-        for cut in candidates:
-            left_mask = x_sorted <= cut
-            y_l, y_r = y_sorted[left_mask], y_sorted[~left_mask]
-            if len(y_l) == 0 or len(y_r) == 0:
-                continue
-
-            ent_l = self._entropy(y_l)
-            ent_r = self._entropy(y_r)
-            e_cond = (len(y_l) / n) * ent_l + (len(y_r) / n) * ent_r
-            gain = ent_s - e_cond
-
-            if gain > best_gain:
-                best_gain = gain
-                best_cut = cut
-
-        if best_cut is None or best_gain <= 0:
-            return []
-
-        left_mask = x_sorted <= best_cut
-        y_l, y_r = y_sorted[left_mask], y_sorted[~left_mask]
-        k1, k2 = len(np.unique(y_l)), len(np.unique(y_r))
-        ent_l, ent_r = self._entropy(y_l), self._entropy(y_r)
-        delta = np.log2(3**k_s - 2) - (k_s * ent_s - k1 * ent_l - k2 * ent_r)
-        threshold = (np.log2(n - 1) + delta) / n
-
-        if best_gain > threshold:
-            left_cuts = self._mdlp_cut(x_sorted[left_mask], y_l)
-            right_cuts = self._mdlp_cut(x_sorted[~left_mask], y_r)
-            return sorted(list(set(left_cuts + [best_cut] + right_cuts)))
-        else:
-            return []
-
-    def fit(self, X, y):
-        X_df = pd.DataFrame(X)
-        y_arr = np.asarray(y)
-
-        for col in X_df.columns:
-            cuts = self._mdlp_cut(X_df[col].values, y_arr)
-            if len(cuts) == 0:
-                cuts = [np.median(X_df[col].values)]
-            self.cut_points_[col] = cuts
-        return self
-
-    def transform(self, X):
-        X_df = pd.DataFrame(X)
-        X_disc = pd.DataFrame(index=X_df.index)
-
-        for col in X_df.columns:
-            cuts = self.cut_points_.get(col, [])
-            bins = [-np.inf] + cuts + [np.inf]
-            X_disc[col] = pd.cut(X_df[col], bins=bins, labels=False).fillna(0).astype(int)
-        return X_disc
 
 def graficar_dag(dag, titulo, nombre_archivo):
     plt.figure(figsize=(12, 10))
     G = nx.DiGraph(dag.edges())
     G.add_nodes_from(dag.nodes())
-    try:
-        generations = list(nx.topological_generations(G))
-        pos = {}
-        num_gens = len(generations)
-        for gen_idx, nodes in enumerate(generations):
-            y = 1.0 - (gen_idx / (num_gens - 1) if num_gens > 1 else 0.0)
-            num_nodes = len(nodes)
-            for node_idx, node in enumerate(nodes):
-                if num_nodes > 1:
-                    x = 0.1 + 0.8 * (node_idx / (num_nodes - 1))
-                else:
-                    x = 0.5
-                pos[node] = (x, y)
-    except Exception:
-        pos = nx.spring_layout(G, seed=42, k=1.5)
-    
+    generations = list(nx.topological_generations(G))
+    pos = {}
+    num_gens = len(generations)
+    for gen_idx, nodes in enumerate(generations):
+        y = 1.0 - (gen_idx / (num_gens - 1) if num_gens > 1 else 0.0)
+        for node_idx, node in enumerate(nodes):
+            x = 0.1 + 0.8 * node_idx / (len(nodes) - 1) if len(nodes) > 1 else 0.5
+            pos[node] = (x, y)
+
     nx.draw_networkx_nodes(
-        G, pos, 
-        node_size=1500, 
-        node_color='lightgreen', 
-        edgecolors='darkgreen', 
+        G, pos,
+        node_size=1500,
+        node_color='lightgreen',
+        edgecolors='darkgreen',
         linewidths=1.5
     )
     nx.draw_networkx_labels(
-        G, pos, 
-        font_size=8, 
-        font_family='sans-serif', 
+        G, pos,
+        font_size=8,
+        font_family='sans-serif',
         font_weight='bold'
     )
     nx.draw_networkx_edges(
-        G, pos, 
-        edgelist=list(G.edges()), 
+        G, pos,
+        edgelist=list(G.edges()),
         node_size=1500,
-        edge_color='darkgreen', 
+        edge_color='darkgreen',
         arrowstyle='-|>',
-        arrowsize=20, 
-        width=1.5, 
+        arrowsize=20,
+        width=1.5,
         alpha=0.8
     )
-    
+
     plt.title(titulo, fontsize=14, fontweight='bold', pad=20)
     plt.axis('off')
     plt.tight_layout()
     plt.savefig(nombre_archivo, dpi=300)
     plt.close()
 
-def split_ansiedad_into_three(df_ansiedad, n_control, seed=42):
-    df_ansiedad_shuffled = df_ansiedad.sample(frac=1.0, random_state=seed)
-    sub_A = df_ansiedad_shuffled.iloc[0:n_control]
-    sub_B = df_ansiedad_shuffled.iloc[n_control:2*n_control]
-    n_remaining = len(df_ansiedad_shuffled) - 2 * n_control
-    remaining = df_ansiedad_shuffled.iloc[2*n_control:]
-    if n_remaining < n_control:
-        n_to_fill = n_control - n_remaining
-        fill = df_ansiedad_shuffled.iloc[0:2*n_control].sample(n=n_to_fill, replace=False, random_state=seed+1)
-        sub_C = pd.concat([remaining, fill])
+
+def seleccionar_top_dt(df_entrenamiento, candidatas, columna_objetivo, n_top):
+    """Ranking DT del entrenamiento; reutiliza solo entradas exactamente iguales."""
+    candidatas = list(candidatas)
+    X = df_entrenamiento[candidatas].apply(pd.to_numeric, errors="coerce").fillna(0)
+    y = df_entrenamiento[columna_objetivo].astype(int).to_numpy()
+    if np.unique(y).size != 2:
+        raise ValueError("El entrenamiento debe incluir ambas clases para seleccionar con DT.")
+    # El contenido, el orden de filas, los índices, las etiquetas y las variables
+    # forman la clave: nunca se comparte un ranking entre particiones distintas.
+    firma = blake2b(digest_size=32)
+    firma.update(pd.util.hash_pandas_object(X, index=True).to_numpy().tobytes())
+    firma.update(y.tobytes())
+    clave = (tuple(candidatas), columna_objetivo, firma.digest())
+    importancia = _CACHE_RANKING_DT.get(clave)
+    if importancia is None:
+        selector = DecisionTreeClassifier(random_state=42, class_weight="balanced", max_depth=5)
+        selector.fit(X, y)
+        importancia = selector.feature_importances_.copy()
+        if len(_CACHE_RANKING_DT) >= 256:
+            del _CACHE_RANKING_DT[next(iter(_CACHE_RANKING_DT))]
+        _CACHE_RANKING_DT[clave] = importancia
+    if np.count_nonzero(importancia > 0) < n_top:
+        raise ValueError(f"DT asignó importancia positiva a menos de {n_top} variables en este entrenamiento.")
+    orden = sorted(range(len(candidatas)), key=lambda j: (-importancia[j], j))
+    return [candidatas[j] for j in orden[:n_top]]
+
+
+def bootstrap_ci_por_sujeto(y_real, y_pred, sujetos, prefijo, n_replicas=500, semilla=42):
+    """Bootstrap de sujetos completos mediante conteos suficientes por sujeto.
+
+    Produce el mismo remuestreo y las mismas métricas que concatenar épocas
+    en cada réplica, sin reconstruir cientos de veces los índices de filas.
+    """
+    y_real = np.asarray(y_real).astype(int)
+    y_pred = np.asarray(y_pred).astype(int)
+    sujetos = np.asarray(sujetos)
+    if not (len(y_real) == len(y_pred) == len(sujetos)):
+        raise ValueError("Etiquetas, predicciones y sujetos deben estar alineados.")
+    if pd.isna(sujetos).any():
+        raise ValueError("La columna de sujetos contiene valores faltantes.")
+    ids, grupos = np.unique(sujetos, return_inverse=True)
+    if len(ids) < 2:
+        raise ValueError("Se requieren al menos dos sujetos para el bootstrap.")
+    estadisticas = np.column_stack([
+        np.bincount(grupos, minlength=len(ids)),
+        np.bincount(grupos, weights=(y_real == y_pred), minlength=len(ids)),
+        np.bincount(grupos, weights=(y_real == 1), minlength=len(ids)),
+        np.bincount(grupos, weights=((y_real == 1) & (y_pred == 1)), minlength=len(ids)),
+        np.bincount(grupos, weights=(y_real == 0), minlength=len(ids)),
+        np.bincount(grupos, weights=((y_real == 0) & (y_pred == 0)), minlength=len(ids)),
+    ])
+    rng = np.random.RandomState(semilla)
+    muestras = rng.choice(len(ids), size=(n_replicas, len(ids)), replace=True)
+    totales = estadisticas[muestras].sum(axis=1)
+    exactitudes = totales[:, 1] / totales[:, 0]
+    validas = (totales[:, 2] > 0) & (totales[:, 4] > 0)
+    balanceadas = (totales[validas, 3] / totales[validas, 2] + totales[validas, 5] / totales[validas, 4]) / 2
+    acc_ci = np.percentile(exactitudes, [2.5, 97.5])
+    bal_ci = np.percentile(balanceadas, [2.5, 97.5]) if len(balanceadas) else (np.nan, np.nan)
+    return {
+        f"{prefijo}_IC95_exactitud_inf": float(acc_ci[0]),
+        f"{prefijo}_IC95_exactitud_sup": float(acc_ci[1]),
+        f"{prefijo}_IC95_balanced_accuracy_inf": float(bal_ci[0]),
+        f"{prefijo}_IC95_balanced_accuracy_sup": float(bal_ci[1]),
+        f"{prefijo}_n_sujetos": int(len(ids)),
+    }
+
+
+def metricas_agregadas_por_sujeto(y_real, y_pred, sujetos, prefijo):
+    """Calcula métricas por registro con peso total igual para cada sujeto.
+
+    Se conservan las etiquetas por época: un mismo sujeto puede aportar
+    observaciones de ambas clases.
+    """
+    yt = np.asarray(y_real).astype(int)
+    yp = np.asarray(y_pred).astype(int)
+    grupos = np.asarray(sujetos)
+    if not (len(yt) == len(yp) == len(grupos)) or len(grupos) == 0:
+        raise ValueError("Etiquetas, predicciones y sujetos deben tener la misma longitud no vacía.")
+    if pd.isna(grupos).any():
+        raise ValueError("La columna de sujetos contiene valores faltantes.")
+    conteos = pd.Series(grupos).value_counts()
+    pesos = np.asarray([1.0 / conteos[sujeto] for sujeto in grupos], dtype=float)
+    tn, fp, fn, tp = confusion_matrix(yt, yp, labels=[0, 1], sample_weight=pesos).ravel()
+    sensibilidad = tp / (tp + fn) if (tp + fn) else np.nan
+    especificidad = tn / (tn + fp) if (tn + fp) else np.nan
+    balanced_accuracy = (sensibilidad + especificidad) / 2 if np.isfinite(sensibilidad) and np.isfinite(especificidad) else np.nan
+    return {
+        f"{prefijo}_sujeto_exactitud": float(accuracy_score(yt, yp, sample_weight=pesos)),
+        f"{prefijo}_sujeto_balanced_accuracy": float(balanced_accuracy),
+        f"{prefijo}_sujeto_sensibilidad": float(sensibilidad),
+        f"{prefijo}_sujeto_especificidad": float(especificidad),
+        f"{prefijo}_sujeto_precision": float(precision_score(yt, yp, zero_division=0, sample_weight=pesos)),
+        f"{prefijo}_sujeto_f1": float(f1_score(yt, yp, zero_division=0, sample_weight=pesos)),
+        f"{prefijo}_n_sujetos": int(pd.Series(grupos).nunique()),
+    }
+
+
+def obtener_version(paquete):
+    try:
+        return version(paquete)
+    except PackageNotFoundError:
+        return 'no instalado'
+
+
+@contextmanager
+def mostrar_actividad(etiqueta, intervalo=30):
+    inicio = time.perf_counter()
+    fin = threading.Event()
+
+    def avisar():
+        while not fin.wait(intervalo):
+            _tqdm.write(f'{etiqueta}: búsqueda activa, {time.perf_counter() - inicio:.1f} s transcurridos.')
+
+    hilo = threading.Thread(target=avisar, daemon=True)
+    _tqdm.write(f'INICIO {etiqueta}')
+    hilo.start()
+    try:
+        yield
+    finally:
+        fin.set()
+        hilo.join(timeout=1)
+        _tqdm.write(f'FIN {etiqueta}: {time.perf_counter() - inicio:.2f} s')
+
+
+def guardar_csv(tabla, ruta):
+    ruta = Path(ruta)
+    temporal = ruta.with_suffix(ruta.suffix + '.tmp')
+    tabla.to_csv(temporal, index=False)
+    os.replace(temporal, ruta)
+
+
+def guardar_evidencia(contenido, ruta):
+    """Guarda JSON en Evidencia, con subcarpetas por tipo de información.
+
+    Actualiza cada archivo por reemplazo atómico. Conserva evidencia parcial
+    si una corrida falla, pero no implementa reanudación automática.
+    """
+    ruta = Path(ruta)
+    ruta.mkdir(parents=True, exist_ok=True)
+    for nombre, datos in contenido.items():
+        destino = ruta / nombre
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        temporal = destino.with_suffix(destino.suffix + '.tmp')
+        temporal.write_text(
+            json.dumps(datos, ensure_ascii=False, indent=2, default=str), encoding='utf-8')
+        os.replace(temporal, destino)
+
+
+def metricas_clasificacion(y_real, y_pred, y_prob):
+    tn, fp, _, _ = confusion_matrix(y_real, y_pred, labels=[0, 1]).ravel()
+    sensibilidad = recall_score(y_real, y_pred, zero_division=0)
+    especificidad = tn / (tn + fp) if (tn + fp) else np.nan
+    return {'Exact.': accuracy_score(y_real, y_pred),
+            'Prec.': precision_score(y_real, y_pred, zero_division=0),
+            'Sens.': sensibilidad, 'Esp.': especificidad,
+            'F1': f1_score(y_real, y_pred, zero_division=0),
+            'Balanced_accuracy': (sensibilidad + especificidad) / 2,
+            'ROC_AUC': roc_auc_score(y_real, y_prob),
+            'Brier': brier_score_loss(y_real, y_prob),
+            'Log_loss': log_loss(y_real, np.column_stack([1 - y_prob, y_prob]), labels=[0, 1])}
+
+
+class BICDiscreto(BaseStructureScore):
+    """BIC multinomial estándar; cuenta solo configuraciones observadas.
+
+    El término de penalización incluye todas las configuraciones posibles.
+    Evita reservar tablas enormes durante la búsqueda de estructura.
+    """
+
+    _tags = {'name': 'bic-discreto-conteos', 'supported_datatype': 'discrete',
+             'default_for': None, 'is_parameteric': False}
+
+    def __init__(self, data, state_names):
+        super().__init__(data, state_names=state_names)
+        self.codigos = {c: data[c].to_numpy(dtype=np.int64) for c in data.columns}
+        self.card = {c: len(state_names[c]) for c in data.columns}
+        self.n = len(data)
+
+    def _local_score(self, variable, parents):
+        ri = self.card[variable]
+        qi = int(np.prod([self.card[p] for p in parents], dtype=np.int64))
+        codigos = np.zeros(self.n, dtype=np.int64)
+        for padre in parents:
+            codigos = codigos * self.card[padre] + self.codigos[padre]
+        _, inversos, totales = np.unique(codigos, return_inverse=True, return_counts=True)
+        conteos = np.bincount(inversos * ri + self.codigos[variable],
+                              minlength=len(totales) * ri).reshape(-1, ri)
+        filas, columnas = np.nonzero(conteos)
+        positivos = conteos[filas, columnas]
+        ll = float(np.sum(positivos * (np.log(positivos) - np.log(totales[filas]))))
+        valor = ll - 0.5 * np.log(self.n) * qi * (ri - 1)
+        if not np.isfinite(valor):
+            raise ValueError(f'BIC discreto no finito: {variable}, padres={parents}.')
+        return float(valor)
+
+
+class BICDiscretoCondicionado(BICDiscreto):
+    """BIC de las CPD EEG con la clase como padre obligatorio.
+
+    El buscador solo recorre nodos EEG. La contribución P(Y) es constante
+    durante esa búsqueda. El score incluye los estados de Y y el número
+    completo de parámetros de cada CPD condicionada por clase.
+    """
+
+    def _local_score(self, variable, parents):
+        if variable == 'Ansiedad':
+            if parents:
+                raise ValueError('La clase raíz no admite padres.')
+            return super()._local_score(variable, ())
+        padres = tuple(sorted(set(parents) | {'Ansiedad'}))
+        return super()._local_score(variable, padres)
+
+
+def validar_dag(dag, columnas):
+    faltantes = set(columnas) - set(dag.nodes())
+    extras = set(dag.nodes()) - set(columnas)
+    if faltantes or extras:
+        raise ValueError(f'Nodos incorrectos: faltantes={sorted(faltantes)}, extras={sorted(extras)}.')
+    if not nx.is_directed_acyclic_graph(dag):
+        raise ValueError(f'Ciclo dirigido: {nx.find_cycle(dag)}.')
+
+
+def orientar_pc(esqueleto, columnas, score):
+    """Mantiene el esqueleto EEG de PC y orienta por BIC discreto condicional.
+
+    Orden inicial: características EEG seleccionadas por DT. Los intercambios adyacentes
+    aceptan únicamente mejoras estrictas. Es una heurística predictiva.
+    """
+    orden = list(columnas)
+    esqueleto = nx.Graph(esqueleto)
+    if set(esqueleto.nodes()) != set(orden) or nx.number_of_selfloops(esqueleto):
+        raise ValueError('El esqueleto PC no coincide con las variables discretas.')
+    posicion = {c: j for j, c in enumerate(orden)}
+    padres = {c: {p for p in esqueleto.neighbors(c) if posicion[p] < posicion[c]} for c in orden}
+
+    def local(c, ps):
+        return score.local_score(c, tuple(sorted(ps)))
+
+    inicial = sum(local(c, padres[c]) for c in orden)
+    cambios = 0
+    convergio = False
+    for pasada in range(len(orden) ** 2):
+        mejoro = False
+        for j in range(len(orden) - 1):
+            u, v = orden[j:j + 2]
+            if not esqueleto.has_edge(u, v):
+                continue
+            nuevos_u, nuevos_v = padres[u] | {v}, padres[v] - {u}
+            delta = local(u, nuevos_u) + local(v, nuevos_v) - local(u, padres[u]) - local(v, padres[v])
+            if delta > 1e-8:
+                orden[j], orden[j + 1] = v, u
+                padres[u], padres[v] = nuevos_u, nuevos_v
+                cambios += 1
+                mejoro = True
+        if not mejoro:
+            convergio = True
+            break
+    dag = nx.DiGraph()
+    dag.add_nodes_from(columnas)
+    dag.add_edges_from((p, c) for c, ps in padres.items() for p in sorted(ps))
+    validar_dag(dag, columnas)
+    if {frozenset(e) for e in dag.edges()} != {frozenset(e) for e in esqueleto.edges()}:
+        raise RuntimeError('La orientación predictiva alteró el esqueleto PC.')
+    return dag, {'Orientacion': 'PC-esqueleto EEG condicionado por clase; orientación predictiva BIC discreto condicional',
+                 'Orden_orientacion': orden, 'BIC_orientacion_inicial': inicial,
+                 'BIC_orientacion_final': sum(local(c, padres[c]) for c in orden),
+                 'Intercambios_orientacion': cambios, 'Pasadas_orientacion': pasada + 1,
+                 'Orientacion_convergio': convergio}
+
+
+def aprender_estructura(datos, estados, algoritmo):
+    objetivo = 'Ansiedad'
+    columnas_eeg = [c for c in datos.columns if c != objetivo]
+    eeg = datos[columnas_eeg]
+    score = BICDiscretoCondicionado(datos, estados)
+    if algoritmo == 'PC':
+        from pgmpy.ci_tests import get_ci_test
+        test_chi2 = get_ci_test(test='chi_square', data=datos)
+
+        def independencia_dada_clase(X, Y, Z=(), significance_level=0.05):
+            # El test se instancia con los datos completos del entrenamiento;
+            # PC solo ve nodos EEG. La clase se añade a todo conjunto separador.
+            condicion = sorted(set(Z) | {objetivo})
+            return test_chi2(X, Y, condicion, significance_level=significance_level)
+
+        estimador = PC(variant='stable', ci_test=independencia_dada_clase,
+                       significance_level=0.05, return_type='pdag', show_progress=False)
+        estimador.fit(eeg)
+        pdag = estimador.causal_graph_
+        dirigido = nx.DiGraph()
+        dirigido.add_nodes_from(columnas_eeg)
+        dirigido.add_edges_from(pdag.directed_edges)
+        dag_eeg, meta = orientar_pc(estimador.skeleton_, columnas_eeg, score)
+        meta.update({'Ciclo_PC_detectado': not nx.is_directed_acyclic_graph(dirigido),
+                     'PDAG_EEG_original': {'dirigidas': sorted(pdag.directed_edges),
+                                           'no_dirigidas': sorted(pdag.undirected_edges)},
+                     'Criterio': 'PC stable chi_square dado Ansiedad; orientación BIC discreto condicional'})
+    elif algoritmo == 'GES':
+        # El score añade Ansiedad a cada conjunto de padres EEG. GES no
+        # puede orientar aristas hacia la clase porque esta no es un nodo
+        # de su espacio de búsqueda; se incorpora como raíz al terminar.
+        estimador = GES(scoring_method=score, return_type='pdag')
+        estimador.fit(eeg)
+        pdag = estimador.causal_graph_
+        dag_eeg = pdag.to_dag()
+        validar_dag(dag_eeg, columnas_eeg)
+        esqueleto = {frozenset(e) for e in pdag.edges()}
+        if {frozenset(e) for e in dag_eeg.edges()} != esqueleto:
+            raise ValueError('La conversión GES alteró su esqueleto EEG.')
+        if not set(pdag.directed_edges).issubset(set(dag_eeg.edges())):
+            raise ValueError('La conversión GES invirtió una arista dirigida EEG.')
+
+        def colliders(arcos):
+            g = nx.DiGraph(); g.add_nodes_from(columnas_eeg); g.add_edges_from(arcos)
+            return {(c, frozenset((a, b))) for c in g.nodes()
+                    for a, b in combinations(g.predecessors(c), 2)
+                    if frozenset((a, b)) not in esqueleto}
+
+        if colliders(pdag.directed_edges) != colliders(dag_eeg.edges()):
+            raise ValueError('GES no produjo una extensión consistente de su PDAG EEG.')
+        meta = {'Orientacion': 'Extensión consistente del PDAG EEG de GES; clase raíz impuesta',
+                'Criterio': 'GES pgmpy con BIC discreto condicional a Ansiedad',
+                'PDAG_EEG_original': {'dirigidas': sorted(pdag.directed_edges),
+                                      'no_dirigidas': sorted(pdag.undirected_edges)}}
     else:
-        sub_C = remaining.iloc[0:n_control]
-    return sub_A, sub_B, sub_C
+        raise ValueError(f'Algoritmo no reconocido: {algoritmo}.')
+    validar_dag(dag_eeg, columnas_eeg)
+    dag = nx.DiGraph()
+    dag.add_nodes_from(datos.columns)
+    dag.add_edges_from(dag_eeg.edges())
+    dag.add_edges_from((objetivo, c) for c in columnas_eeg)
+    validar_dag(dag, datos.columns)
+    meta.update({'Motor': 'pgmpy', 'Version_modelo': 'discreta_generativa_clase_raiz_v2',
+                 'Clase_raiz': True, 'N_arcos_clase_impuestos': len(columnas_eeg),
+                 'N_arcos_EEG_aprendidos': dag_eeg.number_of_edges(),
+                 'Arcos_clase_protegidos': [(objetivo, c) for c in columnas_eeg],
+                 'N_arcos_antes_limites': dag.number_of_edges(),
+                 'Arcos_antes_limites': list(dag.edges())})
+    return dag, score, meta
 
-def ejecutar_loso(df_datos, caracteristicas_seleccionadas, columna_objetivo, grupos, algoritmo, n_intervalos):
-    particion_grupos = LeaveOneGroupOut()
-    y_real = df_datos[columna_objetivo].values
-    y_pred = np.zeros(len(df_datos))
-    
-    total_pliegues = particion_grupos.get_n_splits(df_datos, y_real, grupos)
-    barra_progreso = tqdm(
-        particion_grupos.split(df_datos, y_real, grupos), 
-        total=total_pliegues, 
-        desc=f"LOSO {algoritmo} (bins={n_intervalos})", 
-        unit='fold', 
-        leave=False
-    )
-    
-    for indices_entrenamiento, indices_prueba in barra_progreso:
-        df_entrenamiento_crudo = df_datos.iloc[indices_entrenamiento]
-        df_prueba_crudo = df_datos.iloc[indices_prueba]
-        
-        discretizador = KBinsDiscretizer(n_bins=n_intervalos, encode='ordinal', strategy='quantile')
-        
-        caracteristicas_entrenamiento_disc = discretizador.fit_transform(df_entrenamiento_crudo[caracteristicas_seleccionadas])
-        caracteristicas_prueba_disc = discretizador.transform(df_prueba_crudo[caracteristicas_seleccionadas])
-        
-        df_entrenamiento = pd.DataFrame(caracteristicas_entrenamiento_disc, columns=caracteristicas_seleccionadas, index=df_entrenamiento_crudo.index).astype(int)
-        df_entrenamiento[columna_objetivo] = df_entrenamiento_crudo[columna_objetivo].values.astype(int)
-        
-        df_prueba = pd.DataFrame(caracteristicas_prueba_disc, columns=caracteristicas_seleccionadas, index=df_prueba_crudo.index).astype(int)
-        
-        df_control = df_entrenamiento[df_entrenamiento[columna_objetivo] == 0]
-        df_ansiedad = df_entrenamiento[df_entrenamiento[columna_objetivo] == 1]
-        
-        n_control = len(df_control)
-        df_ansiedad_A, df_ansiedad_B, df_ansiedad_C = split_ansiedad_into_three(df_ansiedad, n_control, seed=42)
-        
-        df_train_A = pd.concat([df_control, df_ansiedad_A])
-        df_train_B = pd.concat([df_control, df_ansiedad_B])
-        df_train_C = pd.concat([df_control, df_ansiedad_C])
-        
-        prob_A = None
-        prob_B = None
-        prob_C = None
-        col_1 = f"{columna_objetivo}_1"
-        
-        global CALL_COUNTER
-        
+
+def limitar_complejidad(dag, score, estados, max_padres, max_celdas):
+    """Refinamiento posterior explícito; no cambia los tests PC ni la búsqueda GES.
+
+    Las aristas Ansiedad -> EEG están protegidas. Si un nodo excede un
+    límite, se elimina el padre EEG cuya retirada deja el
+    mejor BIC local del entrenamiento. Se registra cada retirada; no se
+    interpreta la estructura refinada como una extensión causal del PDAG.
+    """
+    dag = nx.DiGraph(dag)
+    if dag.in_degree('Ansiedad') != 0:
+        raise ValueError('La clase debe ser raíz antes de aplicar límites.')
+    for nodo in set(dag.nodes()) - {'Ansiedad'}:
+        if not dag.has_edge('Ansiedad', nodo):
+            raise ValueError(f'Falta la arista de clase protegida hacia {nodo}.')
+    retirados = []
+    for nodo in list(dag.nodes()):
+        while True:
+            padres = sorted(dag.predecessors(nodo))
+            celdas = len(estados[nodo]) * int(np.prod([len(estados[p]) for p in padres], dtype=np.int64))
+            if len(padres) <= max_padres and celdas <= max_celdas:
+                break
+            candidatos_eeg = [p for p in padres if p != 'Ansiedad']
+            if not candidatos_eeg:
+                raise ValueError(f'Los límites no permiten la CPD mínima de {nodo} dada la clase; aumenta los límites.')
+            antes = score.local_score(nodo, tuple(padres))
+            candidatos = [(score.local_score(nodo, tuple(p for p in padres if p != quitar)), quitar)
+                          for quitar in candidatos_eeg]
+            mejor = max(v for v, _ in candidatos)
+            quitar = min(p for v, p in candidatos if v == mejor)
+            dag.remove_edge(quitar, nodo)
+            retirados.append({'padre': quitar, 'hijo': nodo, 'BIC_antes': antes,
+                              'BIC_despues': mejor, 'celdas_antes': celdas,
+                              'motivo': 'Límite declarado de padres o celdas de CPD'})
+    validar_dag(dag, estados)
+    if dag.in_degree('Ansiedad') != 0 or set(dag.successors('Ansiedad')) != set(estados) - {'Ansiedad'}:
+        raise RuntimeError('El refinamiento alteró las aristas de clase protegidas.')
+    return dag, retirados
+
+
+def preparar_particion(train, test, candidatas, objetivo, top, bins):
+    """Imputación por mediana, DT y cuantiles: todo se ajusta con entrenamiento."""
+    X = train[candidatas].apply(pd.to_numeric, errors='coerce').replace([np.inf, -np.inf], np.nan)
+    Z = test[candidatas].apply(pd.to_numeric, errors='coerce').replace([np.inf, -np.inf], np.nan)
+    medianas = X.median()
+    if medianas.isna().any():
+        raise ValueError(f'Variables sin datos finitos en entrenamiento: {medianas[medianas.isna()].index.tolist()}')
+    if set(train[objetivo].unique()) != {0, 1}:
+        raise ValueError('El entrenamiento debe contener ambas clases.')
+    # Construir las columnas juntas y consolidar bloques de memoria.
+    base = pd.concat([X.fillna(medianas), train[[objetivo]].astype(int)], axis=1).copy()
+    seleccionadas = seleccionar_top_dt(base, candidatas, objetivo, top)
+    discretizador = KBinsDiscretizer(n_bins=bins, encode='ordinal', strategy='quantile',
+                                     subsample=None, random_state=42)
+    with warnings.catch_warnings(record=True) as avisos:
+        warnings.simplefilter('always')
+        a = discretizador.fit_transform(base[seleccionadas])
+    b = discretizador.transform(Z[seleccionadas].fillna(medianas[seleccionadas]))
+    if not np.isfinite(a).all() or not np.isfinite(b).all():
+        raise ValueError('La discretización produjo valores no finitos.')
+    a = pd.DataFrame(a.astype(int), columns=seleccionadas, index=train.index)
+    b = pd.DataFrame(b.astype(int), columns=seleccionadas, index=test.index)
+    a[objetivo] = train[objetivo].to_numpy(dtype=int)
+    estados = {c: list(range(int(n))) for c, n in zip(seleccionadas, discretizador.n_bins_)}
+    estados[objetivo] = [0, 1]
+    for c in seleccionadas:
+        if not a[c].isin(estados[c]).all() or not b[c].isin(estados[c]).all():
+            raise ValueError(f'Estado fuera de los intervalos efectivos de {c}.')
+    meta = {'Caracteristicas_DT': seleccionadas, 'n_bins_solicitados': bins,
+            'n_bins_efectivos': {c: len(estados[c]) for c in seleccionadas},
+            'Limites_intervalos': {c: v.tolist() for c, v in zip(seleccionadas, discretizador.bin_edges_)},
+            'Medianas_imputacion': medianas[seleccionadas].to_dict(),
+            'N_valores_imputados_train': int(X[seleccionadas].isna().sum().sum()),
+            'N_valores_imputados_evaluacion': int(Z[seleccionadas].isna().sum().sum()),
+            'Advertencias_discretizacion': [str(aviso.message) for aviso in avisos],
+            'Estrategia': 'Cuantiles de entrenamiento; sin submuestreo; mediana de entrenamiento'}
+    return a, b, estados, meta
+
+
+def ajustar_cpds(dag, datos, estados, max_celdas):
+    """Estimación K2 exacta por conteos vectorizados, incluida la red sin aristas."""
+    validar_dag(dag, datos.columns)
+    modelo = DiscreteBayesianNetwork()
+    modelo.add_nodes_from(datos.columns)
+    modelo.add_edges_from(dag.edges())
+    diagnostico = []
+    for nodo in datos.columns:
+        padres = sorted(dag.predecessors(nodo))
+        tarjetas = [len(estados[p]) for p in padres]
+        ri = len(estados[nodo]); qi = int(np.prod(tarjetas, dtype=np.int64))
+        if ri * qi > max_celdas:
+            raise ValueError(f'CPD de {nodo} excede el límite de celdas antes de asignar memoria.')
+        codigo = np.zeros(len(datos), dtype=np.int64)
+        for p in padres:
+            codigo = codigo * len(estados[p]) + datos[p].to_numpy(dtype=np.int64)
+        counts = np.bincount(datos[nodo].to_numpy(dtype=np.int64) * qi + codigo,
+                             minlength=ri * qi).reshape(ri, qi)
+        valores = (counts + 1.0) / (counts.sum(axis=0, keepdims=True) + ri)
+        kwargs = {'variable': nodo, 'variable_card': ri, 'values': valores,
+                  'state_names': {c: estados[c] for c in [nodo] + padres}}
+        if padres:
+            kwargs.update(evidence=padres, evidence_card=tarjetas)
+        modelo.add_cpds(TabularCPD(**kwargs))
+        totales = counts.sum(axis=0)
+        diagnostico.append({'nodo': nodo, 'padres': padres, 'cardinalidad': ri,
+                            'configuraciones_padres': qi, 'celdas_CPD': ri * qi,
+                            'parametros_libres': (ri - 1) * qi,
+                            'configuraciones_sin_datos': int(sum(totales == 0)),
+                            'configuraciones_con_menos_de_5': int(sum(totales < 5)),
+                            'min_observaciones_por_configuracion': int(totales.min()),
+                            'pseudoconteo_K2_por_celda': 1.0})
+    modelo.check_model()
+    return modelo, diagnostico
+
+
+def inferir_posterior(modelo, datos, objetivo):
+    """Posterior exacto de la red generativa con clase raíz.
+
+    Cada CPD EEG contiene la clase como padre. Las log-razones por factor
+    evitan restar dos sumas conjuntas grandes. No se redondean las
+    probabilidades ni las métricas.
+    """
+    esperado = set(modelo.nodes()) - {objetivo}
+    if set(datos.columns) != esperado or not datos.index.is_unique:
+        raise ValueError('Predictores o índices de inferencia incorrectos.')
+    if modelo.in_degree(objetivo) != 0 or set(modelo.successors(objetivo)) != esperado:
+        raise ValueError('La red debe tener la clase como raíz y padre de todos los predictores.')
+    cpd_clase = modelo.get_cpds(objetivo)
+    if cpd_clase.state_names[objetivo] != [0, 1]:
+        raise ValueError('La clase no está codificada como [0, 1].')
+    for c in esperado:
+        estados = modelo.get_cpds(c).state_names[c]
+        if not datos[c].isin(estados).all():
+            raise ValueError(f'Estado faltante o no definido para {c}.')
+    factores = sorted(modelo.get_cpds(), key=lambda cpd: str(cpd.variable))
+    if any(objetivo not in cpd.variables for cpd in factores):
+        raise ValueError('Una CPD no cumple la arquitectura generativa declarada.')
+
+    def evaluar(cpd, clase):
+        indices = []
+        for variable in cpd.variables:
+            valores = np.full(len(datos), clase) if variable == objetivo else datos[variable].to_numpy()
+            mapa = {estado: j for j, estado in enumerate(cpd.state_names[variable])}
+            codigos = pd.Series(valores).map(mapa)
+            if codigos.isna().any():
+                raise ValueError(f'Estado no definido en la CPD de {variable}.')
+            indices.append(codigos.to_numpy(dtype=np.int64))
+        p = np.asarray(cpd.values)[tuple(indices)]
+        if not np.isfinite(p).all() or np.any(p <= 0) or np.any(p > 1):
+            raise ValueError('CPD inválida; K2 debe producir probabilidades positivas y finitas.')
+        return p
+
+    log_razon = np.zeros(len(datos))
+    for cpd in factores:
+        log_razon += np.log(evaluar(cpd, 1)) - np.log(evaluar(cpd, 0))
+    if not np.isfinite(log_razon).all():
+        raise ValueError('Log-razones no finitas durante la inferencia.')
+    p = np.exp(-np.logaddexp(0.0, -log_razon))
+    if len(p) != len(datos) or not np.isfinite(p).all() or np.any((p < 0) | (p > 1)):
+        raise ValueError('Inferencia incompleta o probabilidades inválidas.')
+    return pd.Series(p, index=datos.index, name='Probabilidad_ansiedad')
+
+
+def serializar_modelo(modelo):
+    return {'nodos': list(modelo.nodes()), 'arcos': list(modelo.edges()), 'prior_parametros': 'K2',
+            'Version_modelo': 'discreta_generativa_clase_raiz_v2',
+            'Factorizacion': 'P(Y) * producto_j P(X_j | Y, padres_EEG(X_j))',
+            'cpds': [{'variables': list(cpd.variables), 'cardinality': cpd.cardinality.tolist(),
+                      'state_names': cpd.state_names, 'values': np.asarray(cpd.values).tolist()}
+                     for cpd in modelo.get_cpds()]}
+
+
+def ajustar_y_predecir(train, test, candidatas, top, bins, algoritmo, args, etiqueta):
+    inicio = time.perf_counter()
+    a, b, estados, prepro = preparar_particion(train, test, candidatas, 'Ansiedad', top, bins)
+    tiempo_prepro = time.perf_counter() - inicio
+    inicio = time.perf_counter()
+    with mostrar_actividad(etiqueta):
+        dag, score, meta = aprender_estructura(a, estados, algoritmo)
+    tiempo_busqueda = time.perf_counter() - inicio
+    inicio = time.perf_counter()
+    dag, retirados = limitar_complejidad(dag, score, estados, args.max_padres, args.max_celdas_cpd)
+    tiempo_limites = time.perf_counter() - inicio
+    inicio = time.perf_counter()
+    modelo, diagnostico = ajustar_cpds(dag, a, estados, args.max_celdas_cpd)
+    tiempo_parametros = time.perf_counter() - inicio
+    inicio = time.perf_counter()
+    probabilidades = inferir_posterior(modelo, b, 'Ansiedad')
+    if not probabilidades.index.equals(test.index):
+        raise ValueError('Las predicciones no conservan el orden de las épocas.')
+    meta.update({'Tiempo_preprocesamiento_s': tiempo_prepro,
+                 'Tiempo_estructura_s': tiempo_busqueda, 'Tiempo_limites_s': tiempo_limites,
+                 'Tiempo_parametros_s': tiempo_parametros, 'Tiempo_inferencia_s': time.perf_counter() - inicio,
+                 'Arcos_retirados_por_limites': retirados, 'N_arcos': dag.number_of_edges(),
+                 'N_parametros': sum(d['parametros_libres'] for d in diagnostico),
+                 'Max_padres_efectivos': max(len(d['padres']) for d in diagnostico),
+                 'Max_celdas_CPD_efectivas': max(d['celdas_CPD'] for d in diagnostico),
+                 'N_configuraciones_CPD_sin_datos': sum(d['configuraciones_sin_datos'] for d in diagnostico),
+                 'N_caracteristicas_hijas_clase': dag.out_degree('Ansiedad'),
+                 'N_arcos_EEG_final': dag.number_of_edges() - dag.out_degree('Ansiedad'),
+                 'Inferencia': 'Factores que contienen la clase; suma de log-razones; sin redondeo',
+                 'Umbral_fijo': 0.5})
+    evidencia = {'Preprocesamiento': prepro, 'Detalles': meta, 'Diagnostico_CPD': diagnostico,
+                 'Modelo': serializar_modelo(modelo)}
+    if args.diagnosticos_estructura:
+        from pgmpy.metrics import CorrelationScore, FisherC
+        diag = {'Tipo': 'Diagnósticos de ajuste estructural, no métricas predictivas ni evidencia causal',
+                'Advertencia': 'Chi cuadrado asintótico y épocas dependientes dentro de sujeto; interpretar con cautela'}
+        for nombre, estimador in [('CS', CorrelationScore(ci_test='chi_square', significance_level=.05)),
+                                  ('FisherC', FisherC(ci_test='chi_square', compute_rmsea=True, show_progress=False))]:
+            try:
+                resultado = estimador.evaluate(X=a, causal_graph=dag)
+                diag[nombre] = np.asarray(resultado).tolist()
+            except Exception as exc:
+                diag[nombre] = {'Estado': 'NO_DISPONIBLE', 'Error': f'{type(exc).__name__}: {exc}'}
+        evidencia['Diagnosticos_estructura'] = diag
+    return probabilidades.to_numpy(), modelo, meta, evidencia
+def tabla_predicciones(datos, prob):
+    if len(datos) != len(prob) or not np.isfinite(prob).all():
+        raise ValueError('No hay una probabilidad finita por época.')
+    return pd.DataFrame({'Indice_fila': datos.index.to_numpy(), 'Sujeto': datos['Sujeto'].to_numpy(),
+                         'Ansiedad_real': datos['Ansiedad'].to_numpy(dtype=int),
+                         'Probabilidad_ansiedad': prob, 'Prediccion': (prob >= 0.5).astype(int)})
+
+
+def ejecutar_loso(datos, candidatas, top, bins, algoritmo, args, carpeta_evidencia):
+    sujetos = datos['Sujeto'].to_numpy()
+    logo = LeaveOneGroupOut()
+    prob = np.full(len(datos), np.nan)
+    tiempos = []
+    detalle = {'Estado': 'EN_CURSO', 'Pliegues': [], 'Predicciones': []}
+    clave = f'LOSO/{algoritmo}_top{top}_bins{bins}.json'
+    particiones = logo.split(datos, datos['Ansiedad'], sujetos)
+    barra = tqdm(particiones, total=32, desc=f'LOSO {algoritmo} Top {top}, bins {bins}', unit='fold')
+    for fold, (it, iv) in enumerate(barra, start=1):
+        sujeto = str(sujetos[iv[0]])
+        contexto = f'{algoritmo}, Top {top}, bins {bins}, fold {fold}/32, sujeto {sujeto}'
+        registro = {'Fold': fold, 'Sujeto_validacion': sujeto,
+                    'N_entrenamiento': len(it), 'N_validacion': len(iv),
+                    'Sujetos_entrenamiento': sorted(set(map(str, sujetos[it]))), 'Estado': 'INICIO'}
+        inicio = time.perf_counter()
         try:
-            CALL_COUNTER = 0
-            if algoritmo == "PC":
-                estimador_A = PC(variant='stable', ci_test='chi_square', significance_level=0.05, return_type='dag', show_progress=False)
-                estimador_A.fit(df_train_A)
-                dag_A = estimador_A.causal_graph_
-            else:
-                estimador_A = GES(scoring_method='bic-d', return_type='dag')
-                estimador_A.fit(df_train_A)
-                dag_A = estimador_A.causal_graph_
-            
-            if len(dag_A.edges()) > 0:
-                modelo_A = DiscreteBayesianNetwork(dag_A.edges())
-                modelo_A.add_nodes_from(dag_A.nodes())
-                
-                est_param_A = BayesianEstimator(modelo_A, df_train_A)
-                cpds_A = est_param_A.get_parameters(prior_type="K2")
-                modelo_A.add_cpds(*cpds_A)
-                
-                y_prob_A = modelo_A.predict_probability(df_prueba)
-                if col_1 in y_prob_A.columns:
-                    prob_A = y_prob_A[col_1].values
-        except Exception:
-            pass
-            
-        try:
-            CALL_COUNTER = 0
-            if algoritmo == "PC":
-                estimador_B = PC(variant='stable', ci_test='chi_square', significance_level=0.05, return_type='dag', show_progress=False)
-                estimador_B.fit(df_train_B)
-                dag_B = estimador_B.causal_graph_
-            else:
-                estimador_B = GES(scoring_method='bic-d', return_type='dag')
-                estimador_B.fit(df_train_B)
-                dag_B = estimador_B.causal_graph_
-            
-            if len(dag_B.edges()) > 0:
-                modelo_B = DiscreteBayesianNetwork(dag_B.edges())
-                modelo_B.add_nodes_from(dag_B.nodes())
-                
-                est_param_B = BayesianEstimator(modelo_B, df_train_B)
-                cpds_B = est_param_B.get_parameters(prior_type="K2")
-                modelo_B.add_cpds(*cpds_B)
-                
-                y_prob_B = modelo_B.predict_probability(df_prueba)
-                if col_1 in y_prob_B.columns:
-                    prob_B = y_prob_B[col_1].values
-        except Exception:
-            pass
+            if (set(sujetos[it]) & set(sujetos[iv]) or len(set(sujetos[it])) != 31
+                    or len(set(sujetos[iv])) != 1):
+                raise ValueError('La partición LOSO no contiene 31/1 sujetos disjuntos.')
+            p, _, meta, evidencia = ajustar_y_predecir(
+                datos.iloc[it], datos.iloc[iv], candidatas, top, bins, algoritmo, args, contexto)
+            prob[iv] = p
+            registro.update(meta, Estado='OK', Tiempo_fold_s=time.perf_counter() - inicio)
+            tiempos.append(registro)
+            detalle['Pliegues'].append({'Registro': registro, **evidencia})
+        except Exception as exc:
+            registro.update(Estado='ERROR', Error=f'{type(exc).__name__}: {exc}',
+                            Tiempo_fold_s=time.perf_counter() - inicio)
+            detalle.update(Estado='ERROR', Error=registro)
+            guardar_evidencia({clave: detalle}, carpeta_evidencia)
+            raise RuntimeError(f'Falló {contexto}. {type(exc).__name__}: {exc}') from exc
+        listos = np.flatnonzero(np.isfinite(prob))
+        detalle['Predicciones'] = tabla_predicciones(datos.iloc[listos], prob[listos]).to_dict(orient='records')
+        guardar_evidencia({clave: detalle}, carpeta_evidencia)
+        barra.set_postfix(sujeto=sujeto, segundos=f'{registro["Tiempo_fold_s"]:.1f}')
+    if not np.isfinite(prob).all():
+        raise RuntimeError(f'LOSO incompleto para {algoritmo}, Top {top}, bins {bins}.')
+    detalle['Estado'] = 'COMPLETO'
+    guardar_evidencia({clave: detalle}, carpeta_evidencia)
+    return prob, pd.DataFrame(tiempos)
 
-        try:
-            CALL_COUNTER = 0
-            if algoritmo == "PC":
-                estimador_C = PC(variant='stable', ci_test='chi_square', significance_level=0.05, return_type='dag', show_progress=False)
-                estimador_C.fit(df_train_C)
-                dag_C = estimador_C.causal_graph_
-            else:
-                estimador_C = GES(scoring_method='bic-d', return_type='dag')
-                estimador_C.fit(df_train_C)
-                dag_C = estimador_C.causal_graph_
-            
-            if len(dag_C.edges()) > 0:
-                modelo_C = DiscreteBayesianNetwork(dag_C.edges())
-                modelo_C.add_nodes_from(dag_C.nodes())
-                
-                est_param_C = BayesianEstimator(modelo_C, df_train_C)
-                cpds_C = est_param_C.get_parameters(prior_type="K2")
-                modelo_C.add_cpds(*cpds_C)
-                
-                y_prob_C = modelo_C.predict_probability(df_prueba)
-                if col_1 in y_prob_C.columns:
-                    prob_C = y_prob_C[col_1].values
-        except Exception:
-            pass
-            
-        probs_validas = [p for p in [prob_A, prob_B, prob_C] if p is not None]
-        if len(probs_validas) > 0:
-            y_pred[indices_prueba] = np.mean(probs_validas, axis=0)
-        else:
-            y_pred[indices_prueba] = df_entrenamiento[columna_objetivo].mean()
-    umbral_optimo = 0.50
-    y_pred_bin = (y_pred >= umbral_optimo).astype(int)
-    y_real_bin = y_real.astype(int)
-    
-    return y_real_bin, y_pred_bin, umbral_optimo
 
-def principal():
-    dir_resultados = os.path.join('Resultados', 'Red Bayesiana', 'Global', 'Discreta')
-    os.makedirs(dir_resultados, exist_ok=True)
-    
-    archivo_datos = os.path.join('Resultados', 'Exploratorio', 'datos_completos_normalizados.parquet')
-    archivo_ranking = os.path.join('Resultados', 'Análisis global', 'Selección de características', 'Ranking_Multicriterio_Completo.csv')
-    
-    if not os.path.exists(archivo_datos) or not os.path.exists(archivo_ranking):
-        print("Error: No se encontraron los archivos necesarios en Resultados.")
-        return
-        
-    df_datos = pd.read_parquet(archivo_datos)
-    df_datos = df_datos[(df_datos['Puntaje'] == 0) | (df_datos['Puntaje'] >= 1)].copy()
-    df_datos['Ansiedad'] = df_datos['Puntaje'].apply(lambda x: 0 if x == 0 else 1)
-    
-    sujetos_unicos = np.sort(df_datos['Sujeto'].unique())
-    np.random.seed(42)
-    sujetos_mezclados = np.random.permutation(sujetos_unicos)
-    sujetos_desarrollo = sujetos_mezclados[:32]
-    sujetos_prueba_externa = sujetos_mezclados[32:]
-    
-    df_desarrollo = df_datos[df_datos['Sujeto'].isin(sujetos_desarrollo)].copy()
-    df_prueba_externa = df_datos[df_datos['Sujeto'].isin(sujetos_prueba_externa)].copy()
-    
-    grupos_desarrollo = df_desarrollo['Sujeto'].values
-    
-    df_ranking = pd.read_csv(archivo_ranking)
-    
-    tamanos_intervalos = [2, 3]
-    top_tamanos = [10, 15]
-    resultados_loso = []
-    
-    for n_intervalos in tamanos_intervalos:
-        for n_caracteristicas in top_tamanos:
-            for algoritmo in ["PC", "GES"]:
-                # Selección híbrida de características (mRMR para PC Top 10, DT para los demás)
-                if algoritmo == "PC" and n_caracteristicas == 10:
-                    df_ranking_temp = df_ranking.sort_values(by='mRMR_40_Rank', ascending=True)
-                else:
-                    df_ranking_temp = df_ranking.sort_values(by='Importancia_DT', ascending=False)
-                    
-                caracteristicas = df_ranking_temp['Caracteristica'].tolist()[:n_caracteristicas]
-                
-                y_real_val, y_pred_val, umbral_optimo = ejecutar_loso(df_desarrollo, caracteristicas, 'Ansiedad', grupos_desarrollo, algoritmo, n_intervalos)
-                
-                val_acc = accuracy_score(y_real_val, y_pred_val)
-                val_prec = precision_score(y_real_val, y_pred_val, zero_division=0)
-                val_sens = recall_score(y_real_val, y_pred_val, zero_division=0)
-                val_f1 = f1_score(y_real_val, y_pred_val, zero_division=0)
-                matriz_confusion_val = confusion_matrix(y_real_val, y_pred_val, labels=[0, 1])
-                tn, fp, _, _ = matriz_confusion_val.ravel()
-                val_spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-                
-                discretizador = KBinsDiscretizer(n_bins=n_intervalos, encode='ordinal', strategy='quantile')
-                
-                caract_dev_disc = discretizador.fit_transform(df_desarrollo[caracteristicas])
-                caract_prueba_ext_disc = discretizador.transform(df_prueba_externa[caracteristicas])
-                
-                df_desarrollo_disc = pd.DataFrame(caract_dev_disc, columns=caracteristicas, index=df_desarrollo.index).astype(int)
-                df_desarrollo_disc['Ansiedad'] = df_desarrollo['Ansiedad'].values.astype(int)
-                
-                df_prueba_externa_disc = pd.DataFrame(caract_prueba_ext_disc, columns=caracteristicas, index=df_prueba_externa.index).astype(int)
-                
-                df_control_final = df_desarrollo_disc[df_desarrollo_disc['Ansiedad'] == 0]
-                df_ansiedad_final = df_desarrollo_disc[df_desarrollo_disc['Ansiedad'] == 1]
-                
-                n_control_final = len(df_control_final)
-                df_ansiedad_final_A, df_ansiedad_final_B, df_ansiedad_final_C = split_ansiedad_into_three(df_ansiedad_final, n_control_final, seed=42)
-                
-                df_train_final_A = pd.concat([df_control_final, df_ansiedad_final_A])
-                df_train_final_B = pd.concat([df_control_final, df_ansiedad_final_B])
-                df_train_final_C = pd.concat([df_control_final, df_ansiedad_final_C])
-                
-                dag_final_A = None
-                dag_final_B = None
-                dag_final_C = None
-                prob_test_A = None
-                prob_test_B = None
-                prob_test_C = None
-                col_1 = 'Ansiedad_1'
-                
-                try:
-                    global CALL_COUNTER
-                    CALL_COUNTER = 0
-                    if algoritmo == "PC":
-                        est_final_A = PC(variant='stable', ci_test='chi_square', significance_level=0.05, return_type='dag', show_progress=False)
-                        est_final_A.fit(df_train_final_A)
-                        dag_final_A = est_final_A.causal_graph_
-                    else:
-                        ges_final_A = GES(scoring_method='bic-d', return_type='dag')
-                        ges_final_A.fit(df_train_final_A)
-                        dag_final_A = ges_final_A.causal_graph_
-                    
-                    if len(dag_final_A.edges()) > 0:
-                        modelo_final_A = DiscreteBayesianNetwork(dag_final_A.edges())
-                        modelo_final_A.add_nodes_from(dag_final_A.nodes())
-                        
-                        est_param_final_A = BayesianEstimator(modelo_final_A, df_train_final_A)
-                        cpds_final_A = est_param_final_A.get_parameters(prior_type="K2")
-                        modelo_final_A.add_cpds(*cpds_final_A)
-                        
-                        y_prob_test_A = modelo_final_A.predict_probability(df_prueba_externa_disc)
-                        if col_1 in y_prob_test_A.columns:
-                            prob_test_A = y_prob_test_A[col_1].values
-                except Exception:
-                    pass
-                    
-                try:
-                    CALL_COUNTER = 0
-                    if algoritmo == "PC":
-                        est_final_B = PC(variant='stable', ci_test='chi_square', significance_level=0.05, return_type='dag', show_progress=False)
-                        est_final_B.fit(df_train_final_B)
-                        dag_final_B = est_final_B.causal_graph_
-                    else:
-                        ges_final_B = GES(scoring_method='bic-d', return_type='dag')
-                        ges_final_B.fit(df_train_final_B)
-                        dag_final_B = ges_final_B.causal_graph_
-                    
-                    if len(dag_final_B.edges()) > 0:
-                        modelo_final_B = DiscreteBayesianNetwork(dag_final_B.edges())
-                        modelo_final_B.add_nodes_from(dag_final_B.nodes())
-                        
-                        est_param_final_B = BayesianEstimator(modelo_final_B, df_train_final_B)
-                        cpds_final_B = est_param_final_B.get_parameters(prior_type="K2")
-                        modelo_final_B.add_cpds(*cpds_final_B)
-                        
-                        y_prob_test_B = modelo_final_B.predict_probability(df_prueba_externa_disc)
-                        if col_1 in y_prob_test_B.columns:
-                            prob_test_B = y_prob_test_B[col_1].values
-                except Exception:
-                    pass
+def cargar_datos(raiz):
+    archivo = raiz / 'Resultados' / 'Exploratorio' / 'datos_completos_normalizados.parquet'
+    ranking = raiz / 'Resultados' / 'Análisis global' / 'Selección de características' / 'Ranking_Multicriterio_Completo.csv'
+    if not archivo.exists() or not ranking.exists():
+        raise FileNotFoundError(f'Faltan datos o lista de candidatas: {archivo}; {ranking}')
+    datos = pd.read_parquet(archivo)
+    requeridas = {'Sujeto', 'Puntaje'}
+    if not requeridas.issubset(datos.columns):
+        raise ValueError(f'Faltan columnas: {sorted(requeridas - set(datos.columns))}')
+    if not datos.index.is_unique or not datos.columns.is_unique or datos['Sujeto'].isna().any():
+        raise ValueError('Hay índices/columnas duplicados o sujetos sin identificar.')
+    sam = pd.to_numeric(datos['Puntaje'], errors='coerce')
+    if not np.isfinite(sam.to_numpy()).all():
+        raise ValueError('Puntaje contiene valores faltantes, no numéricos o infinitos.')
+    conservar = (sam == 0) | (sam >= 1)
+    excluidas = int((~conservar).sum())
+    datos = datos.loc[conservar].copy()
+    datos['Ansiedad'] = (sam.loc[conservar] >= 1).astype(int)
+    sujetos = np.sort(datos['Sujeto'].unique())
+    if len(sujetos) != 40:
+        raise ValueError(f'Se requieren exactamente 40 sujetos, se encontraron {len(sujetos)}.')
+    tabla = pd.read_csv(ranking)
+    if 'Caracteristica' not in tabla:
+        raise ValueError('La lista de candidatas no contiene Caracteristica.')
+    candidatas = sorted(tabla['Caracteristica'].dropna().tolist())
+    if len(candidatas) != 306 or len(set(candidatas)) != 306:
+        raise ValueError('Se requieren 306 características candidatas distintas.')
+    if {'Ansiedad', 'Sujeto', 'Puntaje'} & set(candidatas):
+        raise ValueError('La lista EEG incluye una etiqueta o un identificador.')
+    faltantes = set(candidatas) - set(datos.columns)
+    if faltantes:
+        raise ValueError(f'Faltan características en los datos: {sorted(faltantes)}')
+    mezclados = np.random.RandomState(42).permutation(sujetos)
+    desarrollo = datos[datos['Sujeto'].isin(mezclados[:32])].copy()
+    externa = datos[datos['Sujeto'].isin(mezclados[32:])].copy()
+    if set(desarrollo.Sujeto) & set(externa.Sujeto):
+        raise ValueError('Los sujetos externos se solapan con desarrollo.')
+    for nombre, parte in [('desarrollo', desarrollo), ('externa', externa)]:
+        if set(parte['Ansiedad'].unique()) != {0, 1}:
+            raise ValueError(f'Falta una clase en la partición {nombre}.')
+    return desarrollo, externa, candidatas, mezclados, excluidas
 
-                try:
-                    CALL_COUNTER = 0
-                    if algoritmo == "PC":
-                        est_final_C = PC(variant='stable', ci_test='chi_square', significance_level=0.05, return_type='dag', show_progress=False)
-                        est_final_C.fit(df_train_final_C)
-                        dag_final_C = est_final_C.causal_graph_
-                    else:
-                        ges_final_C = GES(scoring_method='bic-d', return_type='dag')
-                        ges_final_C.fit(df_train_final_C)
-                        dag_final_C = ges_final_C.causal_graph_
-                    
-                    if len(dag_final_C.edges()) > 0:
-                        modelo_final_C = DiscreteBayesianNetwork(dag_final_C.edges())
-                        modelo_final_C.add_nodes_from(dag_final_C.nodes())
-                        
-                        est_param_final_C = BayesianEstimator(modelo_final_C, df_train_final_C)
-                        cpds_final_C = est_param_final_C.get_parameters(prior_type="K2")
-                        modelo_final_C.add_cpds(*cpds_final_C)
-                        
-                        y_prob_test_C = modelo_final_C.predict_probability(df_prueba_externa_disc)
-                        if col_1 in y_prob_test_C.columns:
-                            prob_test_C = y_prob_test_C[col_1].values
-                except Exception:
-                    pass
-                    
-                probs_test_validas = [p for p in [prob_test_A, prob_test_B, prob_test_C] if p is not None]
-                if len(probs_test_validas) > 0:
-                    prob_final_test = np.mean(probs_test_validas, axis=0)
-                    y_prueba_externa_pred = (prob_final_test >= umbral_optimo).astype(int)
-                else:
-                    y_prueba_externa_pred = np.zeros(len(df_prueba_externa_disc))
-                    
-                cs_val = np.nan
-                fisher_p = np.nan
-                fisher_rmsea = np.nan
-                dag_eval = None
-                for d_ev in [dag_final_A, dag_final_B, dag_final_C]:
-                    if d_ev is not None:
-                        dag_eval = d_ev
-                        break
-                if dag_eval is not None:
-                    try:
-                        cs_val = CorrelationScore(ci_test='chi_square', significance_level=0.05).evaluate(X=df_desarrollo_disc, causal_graph=dag_eval)
-                    except Exception:
-                        pass
-                    try:
-                        fisher_p, fisher_rmsea = FisherC(ci_test='chi_square', compute_rmsea=True, show_progress=False).evaluate(X=df_desarrollo_disc, causal_graph=dag_eval)
-                    except Exception:
-                        pass
 
-                y_prueba_externa_real = df_prueba_externa['Ansiedad'].values.astype(int)
-                test_acc = accuracy_score(y_prueba_externa_real, y_prueba_externa_pred)
-                test_prec = precision_score(y_prueba_externa_real, y_prueba_externa_pred, zero_division=0)
-                test_sens = recall_score(y_prueba_externa_real, y_prueba_externa_pred, zero_division=0)
-                test_f1 = f1_score(y_prueba_externa_real, y_prueba_externa_pred, zero_division=0)
-                matriz_confusion_test = confusion_matrix(y_prueba_externa_real, y_prueba_externa_pred, labels=[0, 1])
-                tn_t, fp_t, _, _ = matriz_confusion_test.ravel()
-                test_spec = tn_t / (tn_t + fp_t) if (tn_t + fp_t) > 0 else 0.0
-                
-                val_bal_acc = (val_sens + val_spec) / 2
-                test_bal_acc = (test_sens + test_spec) / 2
-                
-                if algoritmo == "PC":
-                    alg_desc = 'PC (chi_square)'
-                else:
-                    alg_desc = 'GES (bic-d)'
-                resultados_loso.append({
-                    'Estructura': alg_desc,
-                    'n_bins': n_intervalos,
-                    'Top': n_caracteristicas,
-                    'Exact. (Val)': val_acc,
-                    'Exact. (Test)': test_acc,
-                    'Prec. (Val)': val_prec,
-                    'Prec. (Test)': test_prec,
-                    'Sens. (Val)': val_sens,
-                    'Sens. (Test)': test_sens,
-                    'Esp. (Val)': val_spec,
-                    'Esp. (Test)': test_spec,
-                    'F1 (Val)': val_f1,
-                    'F1 (Test)': test_f1,
-                    'CS': cs_val,
-                    'FisherC_p': fisher_p,
-                    'FisherC_RMSEA': fisher_rmsea
-                })
-                
-                if dag_final_A is not None:
-                    try:
-                        graficar_dag(
-                            dag_final_A, 
-                            f"Red Discreta A ({alg_desc}, Top-{n_caracteristicas}, Bins-{n_intervalos})", 
-                            os.path.join(dir_resultados, f"Estructura_Global_{algoritmo}_top{n_caracteristicas}_bins{n_intervalos}_A.png")
-                        )
-                    except Exception as e:
-                        print(f"Error graficando DAG A {algoritmo} top {n_caracteristicas} bins {n_intervalos}: {e}")
-                if dag_final_B is not None:
-                    try:
-                        graficar_dag(
-                            dag_final_B, 
-                            f"Red Discreta B ({alg_desc}, Top-{n_caracteristicas}, Bins-{n_intervalos})", 
-                            os.path.join(dir_resultados, f"Estructura_Global_{algoritmo}_top{n_caracteristicas}_bins{n_intervalos}_B.png")
-                        )
-                    except Exception as e:
-                        print(f"Error graficando DAG B {algoritmo} top {n_caracteristicas} bins {n_intervalos}: {e}")
-                if dag_final_C is not None:
-                    try:
-                        graficar_dag(
-                            dag_final_C, 
-                            f"Red Discreta C ({alg_desc}, Top-{n_caracteristicas}, Bins-{n_intervalos})", 
-                            os.path.join(dir_resultados, f"Estructura_Global_{algoritmo}_top{n_caracteristicas}_bins{n_intervalos}_C.png")
-                        )
-                    except Exception as e:
-                        print(f"Error graficando DAG C {algoritmo} top {n_caracteristicas} bins {n_intervalos}: {e}")
+def principal(argv=None):
+    parser = argparse.ArgumentParser(description='Red bayesiana discreta: LOSO, DT e inferencia vectorizada por CPD.')
+    parser.add_argument('--algoritmos', nargs='+', choices=['GES', 'PC'], default=['GES', 'PC'])
+    parser.add_argument('--tops', nargs='+', type=int, choices=[10, 15, 20], default=[10, 15, 20])
+    parser.add_argument('--bins', nargs='+', type=int, choices=[2, 3], default=[2, 3])
+    parser.add_argument('--max-padres', type=int, default=3,
+                        help='Padres totales por nodo EEG, incluida la clase protegida; 3 permite hasta 2 padres EEG.')
+    parser.add_argument('--max-celdas-cpd', type=int, default=256,
+                        help='Máximo de celdas por tabla condicional tras refinar la estructura.')
+    parser.add_argument('--diagnosticos-estructura', action='store_true',
+                        help='Añade CS y FisherC a Evidencia, separados de las métricas predictivas; aumenta el tiempo.')
+    args = parser.parse_args(argv)
+    if args.max_padres < 1 or args.max_celdas_cpd < 2 * max(args.bins):
+        parser.error('--max-padres debe ser al menos 1; --max-celdas-cpd debe permitir una CPD EEG dada la clase (2*n_bins).')
+    raiz = Path(__file__).resolve().parents[3]
+    salida = raiz / 'Resultados' / 'Red Bayesiana' / 'Global' / 'Discreta'
+    evidencia_dir = salida / 'Evidencia'
+    salida.mkdir(parents=True, exist_ok=True)
+    desarrollo, externa, candidatas, sujetos, excluidas = cargar_datos(raiz)
+    configuracion = {**vars(args), 'Estado_ejecucion': 'EN_CURSO',
+                     'Inicio_UTC': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                     'Semilla': 42, 'Criterio': 'SAM=0 control; SAM>=1 caso',
+                     'Version_modelo': 'discreta_generativa_clase_raiz_v2',
+                     'Arquitectura': 'Ansiedad raíz y padre obligatorio de todos los predictores EEG',
+                     'Limite_padres': 'Incluye una plaza reservada a la clase en cada CPD EEG',
+                     'Sujetos_desarrollo_32': list(map(str, sujetos[:32])),
+                     'Sujetos_externos_8': list(map(str, sujetos[32:])),
+                     'Epocas_excluidas_por_criterio_SAM': excluidas,
+                     'Candidatas': candidatas, 'N_candidatas': len(candidatas),
+                     'Version_pgmpy': obtener_version('pgmpy'), 'Version_sklearn': obtener_version('scikit-learn'),
+                     'Version_numpy': obtener_version('numpy'), 'Version_pandas': obtener_version('pandas'),
+                     'Umbral_fijo': 0.5, 'Prior_parametros': 'K2, un pseudoconteo por celda',
+                     'Imputacion': 'Mediana ajustada dentro de cada entrenamiento, antes de DT; infinitos tratados como faltantes',
+                     'Interpretacion': 'PC EEG condicionado por clase y orientado por BIC discreto condicional; GES EEG con el mismo BIC condicional. Clase raíz impuesta; límites protegen aristas de clase. No identifica causalidad.',
+                     'Nota_validacion': 'Los intervalos se remuestrean por sujeto; las épocas no son sujetos independientes. Los ocho externos ya se observaron en análisis previos.'}
+    guardar_evidencia({'Configuracion.json': configuracion}, evidencia_dir)
+    resumen = salida / 'Resultados_Red_Discreta.csv'
+    resultados = []
+    guardar_csv(pd.DataFrame(columns=['Estructura', 'n_bins', 'Top', 'Estado']), resumen)
+    print(f'Resultados: {salida}', flush=True)
+    print('Red bayesiana discreta generativa: clase raíz y todos los predictores como hijos; K2.', flush=True)
+    print(f'Configuraciones: {len(set(args.algoritmos)) * len(set(args.tops)) * len(set(args.bins))}; '
+          f'máximo {args.max_padres} padres, {args.max_celdas_cpd} celdas por CPD; umbral fijo 0.5.', flush=True)
+    inicio_total = time.perf_counter()
+    contexto = ''
+    try:
+        for bins in dict.fromkeys(args.bins):
+            for top in dict.fromkeys(args.tops):
+                for algoritmo in dict.fromkeys(args.algoritmos):
+                    contexto = f'{algoritmo}, Top {top}, bins {bins}'
+                    inicio = time.perf_counter()
+                    pval, tiempos = ejecutar_loso(desarrollo, candidatas, top, bins, algoritmo, args, evidencia_dir)
+                    ptest, modelo, meta, evidencia = ajustar_y_predecir(
+                        desarrollo, externa, candidatas, top, bins, algoritmo, args,
+                        f'{contexto}, ajuste final con 32 sujetos')
+                    key = f'{algoritmo}_top{top}_bins{bins}'
+                    guardar_evidencia({f'Modelos_Finales/{key}.json': evidencia,
+                                       f'Predicciones_Externas/{key}.json': tabla_predicciones(externa, ptest).to_dict(orient='records')},
+                                      evidencia_dir)
+                    yval = desarrollo['Ansiedad'].to_numpy(dtype=int)
+                    ytest = externa['Ansiedad'].to_numpy(dtype=int)
+                    predval = (pval >= 0.5).astype(int); predtest = (ptest >= 0.5).astype(int)
+                    efectivos = evidencia['Preprocesamiento']['n_bins_efectivos']
+                    fila = {'Estructura': algoritmo, 'Motor': meta['Motor'], 'Criterio': meta['Criterio'],
+                            'Top': top, 'n_bins': bins, 'Estado': 'COMPLETO', 'Umbral_fijo': 0.5,
+                            'Version_modelo': meta['Version_modelo'],
+                            'Clase_raiz': meta['Clase_raiz'],
+                            'N_arcos_clase_impuestos': meta['N_arcos_clase_impuestos'],
+                            'N_arcos_EEG_final': meta['N_arcos_EEG_final'],
+                            'N_caracteristicas_hijas_clase': meta['N_caracteristicas_hijas_clase'],
+                            'Orientacion': meta['Orientacion'],
+                            'Ciclo_PC_detectado_final': meta.get('Ciclo_PC_detectado', False),
+                            'Ciclos_PC_detectados_LOSO': int(tiempos.get('Ciclo_PC_detectado', pd.Series(False, index=tiempos.index)).sum()),
+                            'Caracteristicas_DT_final': json.dumps(evidencia['Preprocesamiento']['Caracteristicas_DT'], ensure_ascii=False),
+                            'Bins_efectivos_final': json.dumps(efectivos, ensure_ascii=False),
+                            'N_features_bins_reducidos_final': sum(n < bins for n in efectivos.values()),
+                            'Max_padres_configurado': args.max_padres, 'Max_celdas_CPD_configurado': args.max_celdas_cpd,
+                            'Max_padres_efectivos_final': meta['Max_padres_efectivos'],
+                            'Max_celdas_CPD_final': meta['Max_celdas_CPD_efectivas'],
+                            'N_arcos_final': meta['N_arcos'], 'N_parametros_final': meta['N_parametros'],
+                            'N_arcos_retirados_final': len(meta['Arcos_retirados_por_limites']),
+                            'N_arcos_retirados_LOSO': sum(len(x) for x in tiempos['Arcos_retirados_por_limites']),
+                            'N_configuraciones_CPD_sin_datos_final': meta['N_configuraciones_CPD_sin_datos'],
+                            'Tiempo_LOSO_s': float(tiempos['Tiempo_fold_s'].sum()),
+                            'Tiempo_estructura_LOSO_s': float(tiempos['Tiempo_estructura_s'].sum()),
+                            'Tiempo_estructura_final_s': meta['Tiempo_estructura_s'],
+                            'Tiempo_inferencia_final_s': meta['Tiempo_inferencia_s'],
+                            'Interpretacion_grafo': 'Estructura predictiva observacional; no demuestra causalidad'}
+                    for prefijo, y, pred, prob, grupos in [('Val', yval, predval, pval, desarrollo.Sujeto.to_numpy()),
+                                                          ('Test', ytest, predtest, ptest, externa.Sujeto.to_numpy())]:
+                        fila.update({f'{k} ({prefijo})': v for k, v in metricas_clasificacion(y, pred, prob).items()})
+                        tn, fp, fn, tp = confusion_matrix(y, pred, labels=[0, 1]).ravel()
+                        fila.update({f'{k} ({prefijo})': int(v) for k, v in zip(['TN', 'FP', 'FN', 'TP'], [tn, fp, fn, tp])})
+                        fila.update(bootstrap_ci_por_sujeto(y, pred, grupos, prefijo))
+                        fila.update(metricas_agregadas_por_sujeto(y, pred, grupos, prefijo))
+                    fila['Tiempo_configuracion_s'] = time.perf_counter() - inicio
+                    resultados.append(fila)
+                    guardar_csv(pd.DataFrame(resultados), resumen)
+                    graficar_dag(modelo, f'Discreta generativa, clase raíz: {algoritmo}, Top {top}, {bins} intervalos',
+                                 salida / f'Estructura_Global_{algoritmo}_top{top}_bins{bins}.png')
+                    print(f'COMPLETO {contexto}: {time.perf_counter() - inicio:.1f} s', flush=True)
+    except Exception as exc:
+        error = f'{type(exc).__name__}: {exc}'
+        configuracion.update(Estado_ejecucion='ERROR', Configuracion_fallida=contexto, Error=error)
+        guardar_evidencia({'Configuracion.json': configuracion}, evidencia_dir)
+        resultados.append({'Estructura': algoritmo, 'n_bins': bins, 'Top': top,
+                           'Estado': 'ERROR', 'Error': error})
+        guardar_csv(pd.DataFrame(resultados), resumen)
+        raise RuntimeError(f'Falló {contexto}. La evidencia parcial y el resumen quedaron guardados. {error}') from exc
+    configuracion.update(Estado_ejecucion='COMPLETO', Tiempo_total_s=time.perf_counter() - inicio_total)
+    guardar_evidencia({'Configuracion.json': configuracion}, evidencia_dir)
+    print(f'Resumen: {resumen}', flush=True)
+    print(f'Evidencia: {evidencia_dir}', flush=True)
+    print(pd.DataFrame(resultados).to_string(index=False, float_format=lambda x: f'{x:.4f}'))
 
-    df_resultados = pd.DataFrame(resultados_loso).round(4)
-    ruta_salida = os.path.join(dir_resultados, 'Resultados_Red_Discreta.csv')
-    df_resultados.to_csv(ruta_salida, index=False)
-    
-    print("\n=== RESULTADOS RED CAUSAL DISCRETA ===")
-    print(df_resultados.to_string(index=False, float_format=lambda x: f'{x:.4f}'))
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     principal()

@@ -42,9 +42,8 @@ El proyecto abarca desde la preparación del conjunto de datos electroencefalogr
 │   └── Red Bayesiana/                # Modelos de Redes Bayesianas y Descubrimiento Causal
 │       ├── Global/
 │       │   ├── 10_Comparativa_Bayesiana_MRMR.py # Ejecutor de referencia para la evaluación predictiva
-│       │   ├── 1_Red_Continua.py      # Modelo histórico híbrido (estructura + regresión logística)
+│       │   ├── 1_Red_Bayesiana_Condicional_Gaussiana.py # EEG continuo, clase discreta e inferencia bayesiana
 │       │   ├── 2_Red_Discreta.py      # Modelo discreto histórico
-│       │   ├── 3_Red_Mixta.py         # Modelo histórico híbrido (manta de Markov + regresión logística)
 │       │   ├── 4_Red_Mixta_Regional.py# Modelo regional histórico
 │       │   ├── 5_Ensamble_Conocimiento.py # Ensamble histórico
 │       │   ├── 6_Red_TAN.py           # TAN histórico

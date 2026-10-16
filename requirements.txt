@@ -6,6 +6,7 @@ scipy==1.10.1
 scikit-learn==1.2.2
 xgboost==1.7.6
 pgmpy==1.1.2
+causal-learn==0.1.4.8
 matplotlib==3.7.2
 seaborn==0.12.2
 networkx==3.1
